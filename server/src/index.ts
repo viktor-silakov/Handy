@@ -81,6 +81,16 @@ const MODEL_REGISTRY: Record<string, ModelConfig> = {
         url: 'https://blob.handy.computer/whisper-medium-q4_1.bin',
         filename: 'whisper-medium.bin'
     },
+    'whisper-turbo': {
+        engine: 'whisper',
+        url: 'https://blob.handy.computer/ggml-large-v3-turbo.bin',
+        filename: 'whisper-turbo.bin'
+    },
+    'whisper-large': {
+        engine: 'whisper',
+        url: 'https://blob.handy.computer/ggml-large-v3-q5_0.bin',
+        filename: 'whisper-large.bin'
+    },
     'moonshine-tiny': {
         engine: 'moonshine',
         url: 'https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz',

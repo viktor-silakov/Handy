@@ -85,6 +85,8 @@ MODEL_TYPE=whisper-tiny npx handy-remote-server      # 75 MB
 MODEL_TYPE=whisper-base npx handy-remote-server      # 142 MB
 MODEL_TYPE=whisper-small npx handy-remote-server     # 487 MB
 MODEL_TYPE=whisper-medium npx handy-remote-server    # 1.5 GB
+MODEL_TYPE=whisper-turbo npx handy-remote-server     # 1.6 GB
+MODEL_TYPE=whisper-large npx handy-remote-server     # 1.1 GB
 
 # Английский — Moonshine
 MODEL_TYPE=moonshine-tiny npx handy-remote-server    # 60 MB
@@ -104,6 +106,8 @@ MODEL_TYPE=sensevoice npx handy-remote-server        # ~200 MB
 | `whisper-base`     | Multi-language | 142 MB  | ⚡ Fast   |
 | `whisper-small`    | Multi-language | 487 MB  | 🔄 Medium |
 | `whisper-medium`   | Multi-language | 1.5 GB  | 🐢 Slow   |
+| `whisper-turbo`    | Multi-language | 1.6 GB  | ⚡ Fast   |
+| `whisper-large`    | Multi-language | 1.1 GB  | 🐢 Slow   |
 | `moonshine-tiny`   | English        | 60 MB   | ⚡ Fast   |
 | `moonshine-base`   | English        | 100 MB  | ⚡ Fast   |
 | `parakeet`         | English        | ~200 MB | 🔄 Medium |
