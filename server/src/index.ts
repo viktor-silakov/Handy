@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import express from 'express';
 import multer from 'multer';
 import { spawn } from 'child_process';

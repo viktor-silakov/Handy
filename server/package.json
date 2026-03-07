@@ -1,5 +1,5 @@
 {
-  "name": "server",
+  "name": "handy-remote-server",
   "version": "1.0.0",
   "description": "Remote Transcription Server for Handy",
   "main": "dist/index.js",
@@ -9,9 +9,21 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "postinstall": "cd rust-infer && cargo build --release"
   },
-  "keywords": [],
+  "files": [
+    "dist",
+    "rust-infer/Cargo.toml",
+    "rust-infer/src"
+  ],
+  "keywords": [
+    "handy",
+    "transcription",
+    "stt",
+    "remote",
+    "server"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
