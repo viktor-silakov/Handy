@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 /// Drop guard that notifies the [`TranscriptionCoordinator`] when the
@@ -512,7 +513,12 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
                     Err(err) => {
-                        debug!("Global Shortcut Transcription error: {}", err);
+                        let err_msg = format!("{}", err);
+                        error!("Transcription error: {}", err_msg);
+                        // Emit an event so the frontend can display the error visually
+                        let _ = ah.emit("transcription-error", serde_json::json!({
+                            "error": err_msg
+                        }));
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
                     }

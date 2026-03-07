@@ -35,7 +35,7 @@ Before you begin, ensure you have the following installed:
 3. **Add upstream remote**:
 
    ```bash
-   git remote add upstream git@github.com:cjpais/Handy.git
+   git remote add upstream git@github.com:viktor-silakov/Handy.git
    ```
 
 4. **Install dependencies**:
@@ -86,8 +86,8 @@ For more details, see the Architecture section in [README.md](README.md) or [AGE
 
 ### Before Submitting a Bug Report
 
-1. **Search existing issues** at [github.com/cjpais/Handy/issues](https://github.com/cjpais/Handy/issues)
-2. **Check discussions** at [github.com/cjpais/Handy/discussions](https://github.com/cjpais/Handy/discussions)
+1. **Search existing issues** at [github.com/viktor-silakov/Handy/issues](https://github.com/viktor-silakov/Handy/issues)
+2. **Check discussions** at [github.com/viktor-silakov/Handy/discussions](https://github.com/viktor-silakov/Handy/discussions)
 3. **Try the latest release** to see if the issue has been fixed
 4. **Enable debug mode** (`Cmd/Ctrl+Shift+D`) to gather diagnostic information
 

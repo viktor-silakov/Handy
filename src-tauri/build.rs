@@ -1,6 +1,8 @@
 fn main() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    build_apple_intelligence_bridge();
+    {
+        // build_apple_intelligence_bridge();
+    }
 
     generate_tray_translations();
 
@@ -145,13 +147,8 @@ fn build_apple_intelligence_bridge() {
         Path::new(&sdk_path).join("System/Library/Frameworks/FoundationModels.framework");
     let has_foundation_models = framework_path.exists();
 
-    let source_file = if has_foundation_models {
-        println!("cargo:warning=Building with Apple Intelligence support.");
-        REAL_SWIFT_FILE
-    } else {
-        println!("cargo:warning=Apple Intelligence SDK not found. Building with stubs.");
-        STUB_SWIFT_FILE
-    };
+    let source_file = STUB_SWIFT_FILE;
+    println!("cargo:warning=Forcing Apple Intelligence stubs due to SDK mismatch on host.");
 
     if !Path::new(source_file).exists() {
         panic!("Source file {} is missing!", source_file);

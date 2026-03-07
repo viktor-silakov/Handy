@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { platform } from "@tauri-apps/plugin-os";
 import {
@@ -67,6 +68,19 @@ function App() {
       refreshOutputDevices();
     }
   }, [onboardingStep, refreshAudioDevices, refreshOutputDevices]);
+
+  // Listen for transcription errors and show toast notifications
+  useEffect(() => {
+    const unlisten = listen<{ error: string }>("transcription-error", (event) => {
+      toast.error("Transcription Error", {
+        description: event.payload.error,
+        duration: 8000,
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Handle keyboard shortcuts for debug mode toggle
   useEffect(() => {

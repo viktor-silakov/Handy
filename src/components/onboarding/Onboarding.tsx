@@ -90,7 +90,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
       <div className="max-w-[600px] w-full mx-auto text-center flex-1 flex flex-col min-h-0">
         <div className="flex flex-col gap-4 pb-6">
           {models
-            .filter((m: ModelInfo) => !m.is_downloaded)
+            .filter(
+              (m: ModelInfo) => !m.is_downloaded || m.engine_type === "Remote",
+            )
             .filter((model: ModelInfo) => model.is_recommended)
             .map((model: ModelInfo) => (
               <ModelCard
@@ -107,7 +109,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
             ))}
 
           {models
-            .filter((m: ModelInfo) => !m.is_downloaded)
+            .filter(
+              (m: ModelInfo) => !m.is_downloaded || m.engine_type === "Remote",
+            )
             .filter((model: ModelInfo) => !model.is_recommended)
             .sort(
               (a: ModelInfo, b: ModelInfo) =>

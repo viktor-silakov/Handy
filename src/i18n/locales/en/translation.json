@@ -138,7 +138,15 @@
   "settings": {
     "modelSettings": {
       "title": "{{model}} Settings",
-      "noSettingsNeeded": "This model works automatically with no configuration needed."
+      "noSettingsNeeded": "This model works automatically with no configuration needed.",
+      "remoteUrl": {
+        "label": "Remote Server URL",
+        "description": "URL of the remote transcription server (e.g. http://localhost:3000)"
+      },
+      "remoteToken": {
+        "label": "API Token",
+        "description": "Optional API token for authentication with the remote server"
+      }
     },
     "general": {
       "title": "General",

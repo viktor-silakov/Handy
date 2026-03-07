@@ -52,7 +52,7 @@ This guide covers how to set up the development environment and build Handy from
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:cjpais/Handy.git
+git clone git@github.com:viktor-silakov/Handy.git
 cd Handy
 ```
 

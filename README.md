@@ -15,41 +15,48 @@ Handy was created to fill the gap for a truly open source, extensible speech-to-
 - **Private**: Your voice stays on your computer. Get transcriptions without sending audio to the cloud
 - **Simple**: One tool, one job. Transcribe what you say and put it into a text box
 
-Handy isn't trying to be the best speech-to-text app—it's trying to be the most forkable one.
+Handy isn'tA lightweight, efficient, and privacy-focused speech-to-text tool for macOS. [v1.0 is here!](https://github.com/viktor-silakov/Handy/releases/tag/v1.0.0)
+[x] **Репозиторий:** Форк проекта должен размещаться по адресу `git@github.com:viktor-silakov/Handy.git`
 
-## How It Works
+[![Handy Demo Video](https://img.youtube.com/vi/Eoz_XwS80M0/0.jpg)](https://www.youtube.com/watch?v=Eoz_XwS80M0)
 
-1. **Press** a configurable keyboard shortcut to start/stop recording (or use push-to-talk mode)
-2. **Speak** your words while the shortcut is active
-3. **Release** and Handy processes your speech using Whisper
-4. **Get** your transcribed text pasted directly into whatever app you're using
+Handy is an open-source, fast, and local transcription tool that lives in your menu bar.
 
-The process is entirely local:
+---
 
-- Silence is filtered using VAD (Voice Activity Detection) with Silero
-- Transcription uses your choice of models:
-  - **Whisper models** (Small/Medium/Turbo/Large) with GPU acceleration when available
-  - **Parakeet V3** - CPU-optimized model with excellent performance and automatic language detection
-- Works on Windows, macOS, and Linux
+### Key Features
 
-## Quick Start
+| Feature                   | Description                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🎙️ **Universal Shortcut** | Record audio from any application with a single global hotkey.                                                                                          |
+| ⚡ **Insanely Fast**      | Transcribe using **Whisper** (via [whisper.cpp](https://github.com/ggerganov/whisper.cpp)), **Moonshine**, **Parakeet**, **GigaAM**, or **SenseVoice**. |
+| 🌍 **Multi-language**     | Supports dozens of languages, with world-class accuracy.                                                                                                |
+| 🧠 **Post-processing**    | Automatically format, summarize, or fix transcripts using local (Llama, Apple Intelligence) or cloud LLMs.                                              |
+| 🔒 **Privacy-First**      | Entirely local by default. Your audio and text never leave your machine unless you choose a cloud provider.                                             |
+| ☁️ **Remote Mode**        | Weak computer? Offload transcription to a [Remote Server](https://github.com/viktor-silakov/Handy/tree/main/server).                                    |
+
+---
 
 ### Installation
 
-1. Download the latest release from the [releases page](https://github.com/cjpais/Handy/releases) or the [website](https://handy.computer)
-   - **macOS**: Also available via [Homebrew cask](https://formulae.brew.sh/cask/handy): `brew install --cask handy`
-2. Install the application
-3. Launch Handy and grant necessary system permissions (microphone, accessibility)
-4. Configure your preferred keyboard shortcuts in Settings
-5. Start transcribing!
+1. Download the latest release from the [releases page](https://github.com/viktor-silakov/Handy/releases) or the [website](https://handy.computer)
+2. Move **Handy.app** to your `/Applications` folder.
+3. Launch and follow the onboarding to set up your primary transcription model.
 
-### Development Setup
+---
 
-For detailed build instructions including platform-specific requirements, see [BUILD.md](BUILD.md).
+### How to use
 
-## Architecture
+- **Record:** Hold `⌘+Control+H` (default) to record. Release to transcribe and paste.
+- **Post-process:** Hold `Shift+⌘+Control+H` to record and apply an LLM prompt (e.g., "Clean up stuttering", "Translate to English").
+- **Custom Prompts:** Go to **Settings > Post-processing** to define your own LLM actions.
+- **History:** Access previous transcripts via the menu bar icon or **Settings > History**.
 
-Handy is built as a Tauri application combining:
+---
+
+### Supported Models
+
+Handy supports several architectures via [transcribe-rs](https://github.com/viktor-silakov/transcribe-rs):
 
 - **Frontend**: React + TypeScript with Tailwind CSS for the settings UI
 - **Backend**: Rust for system integration, audio processing, and ML inference
@@ -103,20 +110,34 @@ handy --start-hidden --no-tray
 
 ## Known Issues & Current Limitations
 
-This project is actively being developed and has some [known issues](https://github.com/cjpais/Handy/issues). We believe in transparency about the current state:
+This project is actively being protocols and has some [known issues](https://github.com/viktor-silakov/Handy/issues). We believe in transparency about the current state:
 
-### Major Issues (Help Wanted)
+- **Apple Intelligence:** Requires macOS 15.1+ and M1+ chip.
+- **Sandboxing:** Currently distributed outside the App Store to support universal accessibility features.
+- **VAD (Voice Activity Detection):** Uses Silero VAD to prune silence and improve accuracy.
 
-**Whisper Model Crashes:**
+---
 
-- Whisper models crash on certain system configurations (Windows and Linux)
-- Does not affect all systems - issue is configuration-dependent
-  - If you experience crashes and are a developer, please help to fix and provide debug logs!
+### Contributing
 
-**Wayland Support (Linux):**
+We welcome contributions! Please see our [Contributing Guide](https://github.com/viktor-silakov/Handy/blob/main/CONTRIBUTING.md) to get started.
 
-- Limited support for Wayland display server
-- Requires [`wtype`](https://github.com/atx/wtype) or [`dotool`](https://sr.ht/~geb/dotool/) for text input to work correctly (see [Linux Notes](#linux-notes) below for installation)
+### Troubleshooting
+
+1. **Check existing issues** at [https://github.com/viktor-silakov/Handy/issues](https://github.com/viktor-silakov/Handy/issues)
+2. **Refresh Audio Devices** in Settings if your mic isn't detected.
+3. **Reset Settings** via the Help menu if the app behaves unexpectedly.
+
+---
+
+### Related Projects
+
+- **[Handy CLI](https://github.com/cjpais/handy-cli)** - The original Python command-line version
+- **[transcribe-rs](https://github.com/viktor-silakov/transcribe-rs)** - The Rust heart of the project.
+
+### License
+
+Handy is licensed under the [MIT License](https://github.com/viktor-silakov/Handy/blob/main/LICENSE).stallation)
 
 ### Linux Notes
 
@@ -308,6 +329,8 @@ Download the models you want from below
 - Turbo (1600 MB): `https://blob.handy.computer/ggml-large-v3-turbo.bin`
 - Large (1100 MB): `https://blob.handy.computer/ggml-large-v3-q5_0.bin`
 
+Check [transcribe-rs](https://github.com/viktor-silakov/transcribe-rs) for more information.
+
 **Parakeet Models (compressed archives):**
 
 - V2 (473 MB): `https://blob.handy.computer/parakeet-v2-int8.tar.gz`
@@ -379,7 +402,7 @@ Handy can auto-discover custom Whisper GGML models placed in the `models` direct
 
 ### How to Contribute
 
-1. **Check existing issues** at [github.com/cjpais/Handy/issues](https://github.com/cjpais/Handy/issues)
+1. \*\*Check existing git clone git@github.com:viktor-silakov/Handy.gitssues](https://github.com/viktor-silakov/Handy/issues)
 2. **Fork the repository** and create a feature branch
 3. **Test thoroughly** on your target platform
 4. **Submit a pull request** with clear description of changes

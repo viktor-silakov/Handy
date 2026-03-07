@@ -5,6 +5,7 @@ use anyhow::Result;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
@@ -65,39 +66,50 @@ impl RemoteEngine {
         let url_str = url.to_string();
         let token_str = token.map(|t| t.clone());
         
-        tauri::async_runtime::block_on(async move {
-            let client = reqwest::Client::new();
-            let mut req = client.post(format!("{}/transcribe", url_str.trim_end_matches('/')))
-                .header("Content-Type", "audio/wav")
-                .body(wav_bytes);
-                
-            if let Some(tok) = token_str {
-                if !tok.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", tok));
+        // Spawn a dedicated thread with its own tokio runtime to avoid
+        // "Cannot start a runtime from within a runtime" panic when called
+        // from a tokio-runtime-worker thread.
+        let handle = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to create runtime: {}", e))?;
+            
+            rt.block_on(async move {
+                let client = reqwest::Client::new();
+                let mut req = client.post(format!("{}/transcribe", url_str.trim_end_matches('/')))
+                    .header("Content-Type", "audio/wav")
+                    .body(wav_bytes);
+                    
+                if let Some(tok) = token_str {
+                    if !tok.is_empty() {
+                        req = req.header("Authorization", format!("Bearer {}", tok));
+                    }
                 }
-            }
-            
-            let response = req.send().await.map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-            
-            if !response.status().is_success() {
-                let status = response.status();
-                let err_text = response.text().await.unwrap_or_default();
-                return Err(anyhow::anyhow!("Server returned error {}: {}", status, err_text));
-            }
-            
-            #[derive(serde::Deserialize)]
-            struct TranscribeResponse {
-                text: String,
-            }
-            
-            let json: TranscribeResponse = response.json().await.map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
-            
-            Ok(transcribe_rs::TranscriptionResult {
-                text: json.text,
-                language: None,
-                segments: None,
+                
+                let response = req.send().await.map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+                
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let err_text = response.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("Server returned error {}: {}", status, err_text));
+                }
+                
+                #[derive(serde::Deserialize)]
+                struct TranscribeResponse {
+                    text: String,
+                }
+                
+                let json: TranscribeResponse = response.json().await.map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+                
+                Ok(transcribe_rs::TranscriptionResult {
+                    text: json.text,
+                    segments: None,
+                })
             })
-        })
+        });
+        
+        handle.join().map_err(|_| anyhow::anyhow!("Remote transcription thread panicked"))?
     }
 }
 
@@ -241,7 +253,9 @@ impl TranscriptionManager {
                     LoadedEngine::MoonshineStreaming(ref mut e) => e.unload_model(),
                     LoadedEngine::SenseVoice(ref mut e) => e.unload_model(),
                     LoadedEngine::GigaAM(ref mut e) => e.unload_model(),
-                    LoadedEngine::Remote(ref mut e) => e.unload_model(),
+                    LoadedEngine::Remote(ref mut e) => {
+                        let _ = e.unload_model();
+                    }
                 }
             }
             *engine = None; // Drop the engine to free memory
@@ -317,7 +331,12 @@ impl TranscriptionManager {
             return Err(anyhow::anyhow!(error_msg));
         }
 
-        let model_path = self.model_manager.get_model_path(model_id)?;
+        // Remote engine doesn't need a local model file
+        let model_path = if model_info.engine_type == EngineType::Remote {
+            PathBuf::new() // dummy path, not used for Remote
+        } else {
+            self.model_manager.get_model_path(model_id)?
+        };
 
         // Create appropriate engine based on model type
         let loaded_engine = match model_info.engine_type {

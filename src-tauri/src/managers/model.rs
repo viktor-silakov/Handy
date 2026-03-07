@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub enum EngineType {
     Whisper,
     Parakeet,
@@ -512,6 +512,10 @@ impl ModelManager {
         let mut models = self.available_models.lock().unwrap();
 
         for model in models.values_mut() {
+            // Remote engine doesn't have a physical model file — skip file checks
+            if model.engine_type == EngineType::Remote {
+                continue;
+            }
             if model.is_directory {
                 // For directory-based models, check if the directory exists
                 let model_path = self.models_dir.join(&model.filename);
