@@ -215,8 +215,7 @@ fn get_filler_words_for_language(lang: &str) -> &'static [&'static str] {
         "cs" => &["ehm", "hmm", "mmm", "hm"],
         "pl" => &["hmm", "mmm", "hm"],
         "tr" => &["hmm", "mmm", "hm"],
-        "ru" => &["хм", "ммм", "hmm", "mmm"],
-        "uk" => &["хм", "ммм", "hmm", "mmm"],
+
         "ar" => &["hmm", "mmm"],
         "ja" => &["hmm", "mmm"],
         "ko" => &["hmm", "mmm"],

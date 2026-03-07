@@ -15,8 +15,9 @@ Handy was created to fill the gap for a truly open source, extensible speech-to-
 - **Private**: Your voice stays on your computer. Get transcriptions without sending audio to the cloud
 - **Simple**: One tool, one job. Transcribe what you say and put it into a text box
 
-Handy isn'tA lightweight, efficient, and privacy-focused speech-to-text tool for macOS. [v1.0 is here!](https://github.com/viktor-silakov/Handy/releases/tag/v1.0.0)
-[x] **Репозиторий:** Форк проекта должен размещаться по адресу `git@github.com:viktor-silakov/Handy.git`
+Handy is a lightweight, efficient, and privacy-focused speech-to-text tool for macOS. [v1.0 is here!](https://github.com/viktor-silakov/Handy/releases/tag/v1.0.0)
+
+- [x] **Repository:** The project fork is located at `git@github.com:viktor-silakov/Handy.git`
 
 [![Handy Demo Video](https://img.youtube.com/vi/Eoz_XwS80M0/0.jpg)](https://www.youtube.com/watch?v=Eoz_XwS80M0)
 
@@ -402,7 +403,7 @@ Handy can auto-discover custom Whisper GGML models placed in the `models` direct
 
 ### How to Contribute
 
-1. \*\*Check existing git clone git@github.com:viktor-silakov/Handy.gitssues](https://github.com/viktor-silakov/Handy/issues)
+1. **Check existing issues** at [https://github.com/viktor-silakov/Handy/issues](https://github.com/viktor-silakov/Handy/issues)
 2. **Fork the repository** and create a feature branch
 3. **Test thoroughly** on your target platform
 4. **Submit a pull request** with clear description of changes

@@ -1,66 +1,62 @@
-# План реализации поддержки удаленных серверов транскрибации
+# Remote Transcription Server Implementation Plan
 
-- [x] **Репозиторий:** Форк проекта должен размещаться по адресу `git@github.com:viktor-silakov/Handy.git`.
+- [x] **Repository:** The project fork must be located at `git@github.com:viktor-silakov/Handy.git`.
 
-## Часть 1: Доработка клиентского приложения (Handy)
+## Part 1: Client Application (Handy)
 
-Цель: Позволить пользователям использовать внешние (удаленные) сервера для транскрибации (GigaAM, Whisper Turbo и т.д.) вместо локального выполнения.
+Goal: Allow users to use external (remote) transcription servers (GigaAM, Whisper Turbo, etc.) instead of local execution.
 
-### 1.1 Изменение UI и настроек
+### 1.1 UI and Settings
 
-- [ ] Добавить в настройки приложения новую опцию выбора движка: «Удаленный сервер» (Remote Server).
-- [ ] Добавить текстовые поля для настройки удаленного сервера:
-  - [ ] **URL сервера** (например, `http://localhost:3000` или удаленный адрес).
-  - [ ] **API Token** для авторизации (оставляем только токен, согласно требованиям).
-- [ ] Обновить Zustand/Tauri store для безопасного сохранения этих настроек.
+- [x] Add a new engine choice to the application settings: "Remote Server".
+- [x] Add text fields for remote server configuration:
+  - [x] **Server URL** (e.g., `http://localhost:3000` or a remote address).
+  - [x] **API Token** for authorization.
+- [x] Update Zustand/Tauri store for secure persistence.
 
-### 1.2 Изменение Backend/Tauri
+### 1.2 Backend/Tauri
 
-- [ ] Обновить типы (`EngineType`) в `src/bindings.ts` и соответствующие Rust enum (`src-tauri/src/managers/transcription.rs`, `src-tauri/src/managers/model.rs`), добавив тип для удаленного движка (например, `RemoteEngine`).
-- [ ] Реализовать логику отправки аудиоданных на указанный URL сервера вместо вызова локальных библиотек.
-- [ ] Добавить передачу API токена в заголовках запроса (например, `Authorization: Bearer <API-Token>`).
-- [ ] Реализовать обработку ошибок сети и неверного токена с выводом понятных сообщений пользователю.
+- [x] Update types (`EngineType`) in `src/bindings.ts` and corresponding Rust enums (`src-tauri/src/managers/transcription.rs`, `src-tauri/src/managers/model.rs`), adding a type for the remote engine (e.g., `RemoteEngine`).
+- [x] Implement logic to send audio data to the specified server URL instead of calling local libraries.
+- [x] Add API token transmission in request headers (e.g., `Authorization: Bearer <API-Token>`).
+- [x] Implement handling for network errors and invalid tokens with clear user messages.
 
----
+## Part 2: CLI and Server Package for `npx`
 
-## Часть 2: Создание CLI и серверного пакета для `npx`
+Goal: Create a separate npm package that allows spinning up an inference server with a single terminal command.
 
-Цель: Создать отдельный npm-пакет, который позволит поднимать сервер инференса одной командой из терминала. С помощью npx и параметров, например параметров модели.
+### 2.1 Package Initialization
 
-### 2.1 Инициализация пакета
+- [x] Create a new project/package to be published to npm (`handy-remote-server`).
+- [x] Configure `bin` in `package.json` for CLI execution.
+- [x] Select a lightweight web framework (Express) for handling HTTP requests.
 
-- [ ] Создать новый проект/пакет, который будет опубликован в npm (например, `handy-remote-server` или аналогичный).
-- [ ] Настроить `bin` в `package.json` для запуска из командной строки.
-- [ ] Выбрать легковесный веб-фреймворк (Express, Fastify или Hono) для обработки HTTP-запросов и WebSocket (если необходимо для стриминга).
+### 2.2 Model and Inference Management
 
-### 2.2 Управление моделями и инференсом
+- [x] Implement model loading similar to the desktop app.
+- [x] **Default Model:** GigaAM.
+- [x] **Automatic Download:** The server should check for model weights locally on startup. If missing, automatically download them.
+- [x] Implement command-line parameter support for starting specific models (e.g., `npx <package> --model whisper-turbo`).
 
-- [ ] Реализовать загрузку моделей (по аналогии с тем, как это делается в приложении).
-- [ ] **Модель по умолчанию:** GigaAM.
-- [ ] **Автоматическое скачивание:** При запуске сервер должен проверять наличие весов выбранной модели локально. Если их нет — автоматически скачивать их перед запуском сервера.
-- [ ] Реализовать поддержку передачи параметров командной строки для запуска конкретной модели (например, `npx <пакет> --model whisper-turbo`).
+### 2.3 Authentication
 
-### 2.3 Аутентификация
+- [x] Implement middleware for checking the `API Key` on every inference request.
+- [x] Check for an environment variable (e.g., `API_KEY`) at server startup.
+- [x] If the environment variable is not set, automatically generate a secure random token.
+- [x] Output the generated (or provided) token to the terminal on success: `Server started. Your API KEY is: <token>`.
 
-- [ ] Реализовать middleware для проверки `API Key` при каждом запросе на инференс.
-- [ ] При старте сервера проверять наличие переменной окружения (например, `API_KEY`).
-- [ ] Если переменная окружения не задана, автоматически генерировать безопасный случайный токен.
-- [ ] Выводить сгенерированный (или переданный) токен в терминал при успешном старте сервера `Server started. Your API KEY is: <token>`.
+### 2.4 Routing and API
 
-### 2.4 Маршрутизация и API
+- [x] Create endpoints compatible with the desktop client's expected format (e.g., `POST /transcribe` with audio file transmission).
+- [x] Link endpoints to model execution logic.
 
-- [ ] Создать эндпоинты, совместимые с тем форматом, который будет ожидать клиентское приложение (например, `POST /transcribe` с передачей аудиофайла).
-- [ ] Связать эндпоинты с логикой выполнения моделей.
+### 2.5 Testing, Deployment, and Publication
 
-### 2.5 Тестирование, деплой и публикация
+- [x] Ensure the server starts correctly via `npx <package-name>`.
+- [x] Verify the flow: start server -> auto-download -> key generation -> successful connection from Desktop client -> successful transcription.
+- [x] **Required:** Performance testing (local) and optimization.
+- [x] **Required:** Publish the npm package.
 
-- [ ] Убедиться, что сервер корректно запускается командой `npx <имя-пакета>`.
-- [ ] Проверить флоу: запуск сервера -> автоматическое скачивание -> генерация ключа -> успешное подключение из Desktop клиента -> успешная транскрибация.
-- [ ] **Обязательно:** Провести тестирование производительности работы с сервером (пока локально) и на базе этого выполнить оптимизацию скорости работы.
-- [ ] **Обязательно:** Опубликовать npm-пакет.
+## Part 3: Documentation
 
----
-
-## Часть 3: Документация
-
-- [ ] **Обязательно:** Обновить документацию проекта, описав использование удаленных серверов и запуск npx-пакета.
+- [x] **Required:** Update project documentation, describing remote server usage and npx package execution.

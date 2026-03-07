@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Language Policy
+
+- **No Cyrillic:** The repository must not contain any Cyrillic characters. All code, documentation, comments, and commit messages must be in English ONLY.
+
 ## Development Commands
 
 **Prerequisites:**

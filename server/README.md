@@ -53,7 +53,7 @@ Handy Remote Server is running on port 3000
 [2026-03-07T12:00:01.234Z] ── RESPONSE #1 ─────────────────────
   Status:   200
   Duration: 1.23s
-  Result:   "Привет, как дела?"
+  Result:   "Hello, how are you?"
 ```
 
 ### Connecting from Handy
@@ -77,10 +77,10 @@ Handy Remote Server is running on port 3000
 ## Supported Models
 
 ```bash
-# Русский (по умолчанию)
+# Russian (default)
 MODEL_TYPE=gigaam npx handy-remote-server
 
-# Мультиязычный (включая русский) — Whisper модели
+# Multi-language (including Russian) — Whisper models
 MODEL_TYPE=whisper-tiny npx handy-remote-server      # 75 MB
 MODEL_TYPE=whisper-base npx handy-remote-server      # 142 MB
 MODEL_TYPE=whisper-small npx handy-remote-server     # 487 MB
@@ -88,14 +88,14 @@ MODEL_TYPE=whisper-medium npx handy-remote-server    # 1.5 GB
 MODEL_TYPE=whisper-turbo npx handy-remote-server     # 1.6 GB
 MODEL_TYPE=whisper-large npx handy-remote-server     # 1.1 GB
 
-# Английский — Moonshine
+# English — Moonshine
 MODEL_TYPE=moonshine-tiny npx handy-remote-server    # 60 MB
 MODEL_TYPE=moonshine-base npx handy-remote-server    # 100 MB
 
-# Английский — Breeze/Parakeet
+# English — Breeze/Parakeet
 MODEL_TYPE=parakeet npx handy-remote-server          # ~200 MB
 
-# Мультиязычный — SenseVoice
+# Multi-language — SenseVoice
 MODEL_TYPE=sensevoice npx handy-remote-server        # ~200 MB
 ```
 
