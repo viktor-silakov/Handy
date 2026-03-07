@@ -806,6 +806,24 @@ pub fn change_experimental_enabled_setting(app: AppHandle, enabled: bool) -> Res
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_remote_server_url_setting(app: AppHandle, url: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_server_url = url;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_server_token_setting(app: AppHandle, token: Option<String>) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_server_token = token;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_post_process_base_url_setting(
     app: AppHandle,
     provider_id: String,

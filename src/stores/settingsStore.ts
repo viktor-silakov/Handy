@@ -135,6 +135,10 @@ const settingUpdaters: {
     commands.changeExperimentalEnabledSetting(value as boolean),
   show_tray_icon: (value) =>
     commands.changeShowTrayIconSetting(value as boolean),
+  remote_server_url: (value) =>
+    commands.changeRemoteServerUrlSetting(value as string),
+  remote_server_token: (value) =>
+    commands.changeRemoteServerTokenSetting(value as string | null),
 };
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -305,15 +309,15 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => ({
           settings: state.settings
             ? {
-                ...state.settings,
-                bindings: {
-                  ...state.settings.bindings,
-                  [id]: {
-                    ...state.settings.bindings[id]!,
-                    current_binding: binding,
-                  },
+              ...state.settings,
+              bindings: {
+                ...state.settings.bindings,
+                [id]: {
+                  ...state.settings.bindings[id]!,
+                  current_binding: binding,
                 },
-              }
+              },
+            }
             : null,
         }));
 
@@ -336,15 +340,15 @@ export const useSettingsStore = create<SettingsStore>()(
           set((state) => ({
             settings: state.settings
               ? {
-                  ...state.settings,
-                  bindings: {
-                    ...state.settings.bindings,
-                    [id]: {
-                      ...state.settings.bindings[id]!,
-                      current_binding: originalBinding,
-                    },
+                ...state.settings,
+                bindings: {
+                  ...state.settings.bindings,
+                  [id]: {
+                    ...state.settings.bindings[id]!,
+                    current_binding: originalBinding,
                   },
-                }
+                },
+              }
               : null,
           }));
         }

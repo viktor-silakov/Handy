@@ -24,6 +24,7 @@ pub enum EngineType {
     MoonshineStreaming,
     SenseVoice,
     GigaAM,
+    Remote,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -418,6 +419,29 @@ impl ModelManager {
                 supports_translation: false,
                 is_recommended: false,
                 supported_languages: gigaam_languages,
+                is_custom: false,
+            },
+        );
+
+        available_models.insert(
+            "remote-server".to_string(),
+            ModelInfo {
+                id: "remote-server".to_string(),
+                name: "Remote Server".to_string(),
+                description: "Use a remote transcription server.".to_string(),
+                filename: "N/A".to_string(),
+                url: None,
+                size_mb: 0,
+                is_downloaded: true,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: false,
+                engine_type: EngineType::Remote,
+                accuracy_score: 1.0,
+                speed_score: 1.0,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec![],
                 is_custom: false,
             },
         );

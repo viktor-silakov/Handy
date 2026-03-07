@@ -1,0 +1,9 @@
+node_modules/
+dist/
+server.out
+models/
+rust-infer/target/
+.env
+*.wav
+test.js
+test-client.js

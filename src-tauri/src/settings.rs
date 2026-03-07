@@ -362,6 +362,14 @@ pub struct AppSettings {
     pub external_script_path: Option<String>,
     #[serde(default)]
     pub custom_filler_words: Option<Vec<String>>,
+    #[serde(default = "default_remote_server_url")]
+    pub remote_server_url: String,
+    #[serde(default)]
+    pub remote_server_token: Option<String>,
+}
+
+fn default_remote_server_url() -> String {
+    "http://localhost:3000".to_string()
 }
 
 fn default_model() -> String {
@@ -727,6 +735,8 @@ pub fn get_default_settings() -> AppSettings {
         typing_tool: default_typing_tool(),
         external_script_path: None,
         custom_filler_words: None,
+        remote_server_url: default_remote_server_url(),
+        remote_server_token: None,
     }
 }
 

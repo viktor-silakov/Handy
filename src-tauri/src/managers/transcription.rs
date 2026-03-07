@@ -28,6 +28,78 @@ use transcribe_rs::{
     },
     TranscriptionEngine,
 };
+use std::io::Cursor;
+use hound::{WavSpec, WavWriter, SampleFormat};
+
+pub struct RemoteEngine;
+
+impl RemoteEngine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn unload_model(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn transcribe_samples(&mut self, audio: &[f32], url: &str, token: Option<&String>) -> Result<transcribe_rs::TranscriptionResult> {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = WavWriter::new(&mut cursor, spec).map_err(|e| anyhow::anyhow!("Failed to create wav writer: {}", e))?;
+            for &sample in audio {
+                let amplitude = i16::MAX as f32;
+                let sample_i16 = (sample * amplitude).clamp(-amplitude, amplitude) as i16;
+                writer.write_sample(sample_i16).map_err(|e| anyhow::anyhow!("Failed to write sample: {}", e))?;
+            }
+            writer.finalize().map_err(|e| anyhow::anyhow!("Failed to finalize wav: {}", e))?;
+        }
+        
+        let wav_bytes = cursor.into_inner();
+        let url_str = url.to_string();
+        let token_str = token.map(|t| t.clone());
+        
+        tauri::async_runtime::block_on(async move {
+            let client = reqwest::Client::new();
+            let mut req = client.post(format!("{}/transcribe", url_str.trim_end_matches('/')))
+                .header("Content-Type", "audio/wav")
+                .body(wav_bytes);
+                
+            if let Some(tok) = token_str {
+                if !tok.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", tok));
+                }
+            }
+            
+            let response = req.send().await.map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+            
+            if !response.status().is_success() {
+                let status = response.status();
+                let err_text = response.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Server returned error {}: {}", status, err_text));
+            }
+            
+            #[derive(serde::Deserialize)]
+            struct TranscribeResponse {
+                text: String,
+            }
+            
+            let json: TranscribeResponse = response.json().await.map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+            
+            Ok(transcribe_rs::TranscriptionResult {
+                text: json.text,
+                language: None,
+                segments: None,
+            })
+        })
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelStateEvent {
@@ -44,6 +116,7 @@ enum LoadedEngine {
     MoonshineStreaming(MoonshineStreamingEngine),
     SenseVoice(SenseVoiceEngine),
     GigaAM(GigaAMEngine),
+    Remote(RemoteEngine),
 }
 
 #[derive(Clone)]
@@ -168,6 +241,7 @@ impl TranscriptionManager {
                     LoadedEngine::MoonshineStreaming(ref mut e) => e.unload_model(),
                     LoadedEngine::SenseVoice(ref mut e) => e.unload_model(),
                     LoadedEngine::GigaAM(ref mut e) => e.unload_model(),
+                    LoadedEngine::Remote(ref mut e) => e.unload_model(),
                 }
             }
             *engine = None; // Drop the engine to free memory
@@ -366,6 +440,9 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::GigaAM(engine)
             }
+            EngineType::Remote => {
+                LoadedEngine::Remote(RemoteEngine::new())
+            }
         };
 
         // Update the current engine and model ID
@@ -549,6 +626,13 @@ impl TranscriptionManager {
                         LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
                             .transcribe_samples(audio, None)
                             .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e)),
+                        LoadedEngine::Remote(remote_engine) => {
+                            remote_engine.transcribe_samples(
+                                &audio, 
+                                &settings.remote_server_url, 
+                                settings.remote_server_token.as_ref()
+                            ).map_err(|e| anyhow::anyhow!("Remote transcription failed: {}", e))
+                        }
                     }
                 },
             ));

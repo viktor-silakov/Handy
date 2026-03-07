@@ -19,6 +19,8 @@ incremental = true # Compile your binary in smaller steps.
 name = "handy_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+
+
 # [[bin]]
 # name = "cli"
 # path = "src/audio_toolkit/bin/cli.rs"

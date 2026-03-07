@@ -199,6 +199,18 @@ Without these tools, Handy falls back to enigo which may have limited compatibil
 
   `pkill` here simply delivers the signal—it does not terminate the process.
 
+## Remote Server Capability
+
+Handy supports offloading transcription to an external server. This is especially useful for weak computers or edge devices that cannot run the models locally.
+
+We provide an external inference web server via `npm` that you can run on a powerful machine:
+
+```bash
+npx handy-remote-server
+```
+
+When started, it provides a unique **Bearer Token**. Enter the server's IP and Token into Handy's **Settings > General** to securely forward your audio for blazing fast transcription remotely. See `server/README.md` for more info.
+
 ### Platform Support
 
 - **macOS (both Intel and Apple Silicon)**
