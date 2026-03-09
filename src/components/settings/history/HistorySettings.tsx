@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { AudioPlayer } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
+import { Input } from "../../ui/Input";
 import { Copy, Star, Check, Trash2, FolderOpen } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { readFile } from "@tauri-apps/plugin-fs";
-import { commands, type HistoryEntry } from "@/bindings";
-import { formatDateTime } from "@/utils/dateFormat";
+import { commands, type CorrectionPair, type HistoryEntry } from "@/bindings";
+import { useSettings } from "@/hooks/useSettings";
 import { useOsType } from "@/hooks/useOsType";
+import {
+  upsertCorrectionPair,
+  normalizeCorrectionPair,
+} from "@/lib/utils/correctionDictionary";
+import { formatDateTime } from "@/utils/dateFormat";
 
 interface OpenRecordingsButtonProps {
   onClick: () => void;
@@ -34,8 +41,12 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
 export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
   const osType = useOsType();
+  const { getSetting, updateSetting, isUpdating } = useSettings();
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const correctionDictionary =
+    (getSetting("correction_dictionary") as CorrectionPair[] | undefined) ?? [];
+  const dictionaryUpdating = isUpdating("correction_dictionary");
 
   const loadHistoryEntries = useCallback(async () => {
     try {
@@ -132,6 +143,39 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const addCorrectionPair = async (entry: CorrectionPair) => {
+    const normalized = normalizeCorrectionPair(entry);
+
+    if (!normalized) {
+      toast.error(t("settings.correctionDictionary.messages.invalid"));
+      return false;
+    }
+
+    const existing = correctionDictionary.find(
+      (dictionaryEntry) =>
+        dictionaryEntry.wrong.toLowerCase() ===
+          normalized.wrong.toLowerCase() &&
+        dictionaryEntry.correct.toLowerCase() ===
+          normalized.correct.toLowerCase(),
+    );
+
+    if (existing) {
+      toast.error(
+        t("settings.correctionDictionary.messages.duplicate", {
+          wrong: normalized.wrong,
+        }),
+      );
+      return false;
+    }
+
+    await updateSetting(
+      "correction_dictionary",
+      upsertCorrectionPair(correctionDictionary, normalized),
+    );
+    toast.success(t("settings.correctionDictionary.messages.saved"));
+    return true;
+  };
+
   if (loading) {
     return (
       <div className="max-w-3xl w-full mx-auto space-y-6">
@@ -204,6 +248,8 @@ export const HistorySettings: React.FC = () => {
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
                 onCopyText={() => copyToClipboard(entry.transcription_text)}
+                onAddCorrection={addCorrectionPair}
+                isDictionaryUpdating={dictionaryUpdating}
                 getAudioUrl={getAudioUrl}
                 deleteAudio={deleteAudioEntry}
               />
@@ -219,6 +265,8 @@ interface HistoryEntryProps {
   entry: HistoryEntry;
   onToggleSaved: () => void;
   onCopyText: () => void;
+  onAddCorrection: (entry: CorrectionPair) => Promise<boolean>;
+  isDictionaryUpdating: boolean;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
 }
@@ -227,11 +275,16 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   entry,
   onToggleSaved,
   onCopyText,
+  onAddCorrection,
+  isDictionaryUpdating,
   getAudioUrl,
   deleteAudio,
 }) => {
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false);
+  const [wrongWord, setWrongWord] = useState("");
+  const [correctWord, setCorrectWord] = useState("");
 
   const handleLoadAudio = useCallback(
     () => getAudioUrl(entry.file_name),
@@ -250,6 +303,19 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
     } catch (error) {
       console.error("Failed to delete entry:", error);
       alert("Failed to delete entry. Please try again.");
+    }
+  };
+
+  const handleSaveCorrection = async () => {
+    const didSave = await onAddCorrection({
+      wrong: wrongWord,
+      correct: correctWord,
+    });
+
+    if (didSave) {
+      setWrongWord("");
+      setCorrectWord("");
+      setShowCorrectionForm(false);
     }
   };
 
@@ -302,6 +368,56 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       <p className="italic text-text/90 text-sm pb-2 select-text cursor-text">
         {entry.transcription_text}
       </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowCorrectionForm((current) => !current)}
+          disabled={isDictionaryUpdating}
+        >
+          {t("settings.history.addCorrection")}
+        </Button>
+      </div>
+      {showCorrectionForm && (
+        <div className="rounded-lg border border-mid-gray/20 bg-mid-gray/5 p-3 flex flex-col gap-2">
+          <p className="text-xs text-text/60">
+            {t("settings.history.addCorrectionDescription")}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Input
+              value={wrongWord}
+              onChange={(event) => setWrongWord(event.target.value)}
+              placeholder={t("settings.correctionDictionary.fields.wrong")}
+              disabled={isDictionaryUpdating}
+            />
+            <Input
+              value={correctWord}
+              onChange={(event) => setCorrectWord(event.target.value)}
+              placeholder={t("settings.correctionDictionary.fields.correct")}
+              disabled={isDictionaryUpdating}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCorrectionForm(false)}
+              disabled={isDictionaryUpdating}
+            >
+              {t("settings.correctionDictionary.modal.dismiss")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSaveCorrection}
+              disabled={
+                !wrongWord.trim() || !correctWord.trim() || isDictionaryUpdating
+              }
+            >
+              {t("settings.history.saveCorrection")}
+            </Button>
+          </div>
+        </div>
+      )}
       <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
     </div>
   );

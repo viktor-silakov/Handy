@@ -1,9 +1,13 @@
-use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::audio_toolkit::{
+    apply_correction_dictionary, apply_custom_words, filter_transcription_output,
+};
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{get_settings, ModelUnloadTimeout};
 use anyhow::Result;
+use hound::{SampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
+use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,8 +33,6 @@ use transcribe_rs::{
     },
     TranscriptionEngine,
 };
-use std::io::Cursor;
-use hound::{WavSpec, WavWriter, SampleFormat};
 
 pub struct RemoteEngine;
 
@@ -43,29 +45,39 @@ impl RemoteEngine {
         Ok(())
     }
 
-    pub fn transcribe_samples(&mut self, audio: &[f32], url: &str, token: Option<&String>) -> Result<transcribe_rs::TranscriptionResult> {
+    pub fn transcribe_samples(
+        &mut self,
+        audio: &[f32],
+        url: &str,
+        token: Option<&String>,
+    ) -> Result<transcribe_rs::TranscriptionResult> {
         let spec = WavSpec {
             channels: 1,
             sample_rate: 16000,
             bits_per_sample: 16,
             sample_format: SampleFormat::Int,
         };
-        
+
         let mut cursor = Cursor::new(Vec::new());
         {
-            let mut writer = WavWriter::new(&mut cursor, spec).map_err(|e| anyhow::anyhow!("Failed to create wav writer: {}", e))?;
+            let mut writer = WavWriter::new(&mut cursor, spec)
+                .map_err(|e| anyhow::anyhow!("Failed to create wav writer: {}", e))?;
             for &sample in audio {
                 let amplitude = i16::MAX as f32;
                 let sample_i16 = (sample * amplitude).clamp(-amplitude, amplitude) as i16;
-                writer.write_sample(sample_i16).map_err(|e| anyhow::anyhow!("Failed to write sample: {}", e))?;
+                writer
+                    .write_sample(sample_i16)
+                    .map_err(|e| anyhow::anyhow!("Failed to write sample: {}", e))?;
             }
-            writer.finalize().map_err(|e| anyhow::anyhow!("Failed to finalize wav: {}", e))?;
+            writer
+                .finalize()
+                .map_err(|e| anyhow::anyhow!("Failed to finalize wav: {}", e))?;
         }
-        
+
         let wav_bytes = cursor.into_inner();
         let url_str = url.to_string();
         let token_str = token.map(|t| t.clone());
-        
+
         // Spawn a dedicated thread with its own tokio runtime to avoid
         // "Cannot start a runtime from within a runtime" panic when called
         // from a tokio-runtime-worker thread.
@@ -74,42 +86,55 @@ impl RemoteEngine {
                 .enable_all()
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to create runtime: {}", e))?;
-            
+
             rt.block_on(async move {
                 let client = reqwest::Client::new();
-                let mut req = client.post(format!("{}/transcribe", url_str.trim_end_matches('/')))
+                let mut req = client
+                    .post(format!("{}/transcribe", url_str.trim_end_matches('/')))
                     .header("Content-Type", "audio/wav")
                     .body(wav_bytes);
-                    
+
                 if let Some(tok) = token_str {
                     if !tok.is_empty() {
                         req = req.header("Authorization", format!("Bearer {}", tok));
                     }
                 }
-                
-                let response = req.send().await.map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-                
+
+                let response = req
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
                 if !response.status().is_success() {
                     let status = response.status();
                     let err_text = response.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("Server returned error {}: {}", status, err_text));
+                    return Err(anyhow::anyhow!(
+                        "Server returned error {}: {}",
+                        status,
+                        err_text
+                    ));
                 }
-                
+
                 #[derive(serde::Deserialize)]
                 struct TranscribeResponse {
                     text: String,
                 }
-                
-                let json: TranscribeResponse = response.json().await.map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
-                
+
+                let json: TranscribeResponse = response
+                    .json()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+
                 Ok(transcribe_rs::TranscriptionResult {
                     text: json.text,
                     segments: None,
                 })
             })
         });
-        
-        handle.join().map_err(|_| anyhow::anyhow!("Remote transcription thread panicked"))?
+
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("Remote transcription thread panicked"))?
     }
 }
 
@@ -459,9 +484,7 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::GigaAM(engine)
             }
-            EngineType::Remote => {
-                LoadedEngine::Remote(RemoteEngine::new())
-            }
+            EngineType::Remote => LoadedEngine::Remote(RemoteEngine::new()),
         };
 
         // Update the current engine and model ID
@@ -645,13 +668,13 @@ impl TranscriptionManager {
                         LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
                             .transcribe_samples(audio, None)
                             .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e)),
-                        LoadedEngine::Remote(remote_engine) => {
-                            remote_engine.transcribe_samples(
-                                &audio, 
-                                &settings.remote_server_url, 
-                                settings.remote_server_token.as_ref()
-                            ).map_err(|e| anyhow::anyhow!("Remote transcription failed: {}", e))
-                        }
+                        LoadedEngine::Remote(remote_engine) => remote_engine
+                            .transcribe_samples(
+                                &audio,
+                                &settings.remote_server_url,
+                                settings.remote_server_token.as_ref(),
+                            )
+                            .map_err(|e| anyhow::anyhow!("Remote transcription failed: {}", e)),
                     }
                 },
             ));
@@ -705,18 +728,22 @@ impl TranscriptionManager {
             }
         };
 
-        // Apply word correction if custom words are configured
-        let corrected_result = if !settings.custom_words.is_empty() {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-            )
+        let dictionary_corrected_result = if !settings.correction_dictionary.is_empty() {
+            apply_correction_dictionary(&result.text, &settings.correction_dictionary)
         } else {
             result.text
         };
 
-        // Filter out filler words and hallucinations
+        let corrected_result = if !settings.custom_words.is_empty() {
+            apply_custom_words(
+                &dictionary_corrected_result,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+            )
+        } else {
+            dictionary_corrected_result
+        };
+
         let filtered_result = filter_transcription_output(
             &corrected_result,
             &settings.app_language,

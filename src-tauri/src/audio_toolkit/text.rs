@@ -1,3 +1,4 @@
+use crate::settings::CorrectionPair;
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -155,7 +156,106 @@ pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -
     result.join(" ")
 }
 
-/// Preserves the case pattern of the original word when applying a replacement
+fn normalize_correction_token(token: &str) -> String {
+    token
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '\'' && c != '-')
+        .to_lowercase()
+}
+
+fn build_correction_phrase(words: &[&str]) -> String {
+    words
+        .iter()
+        .map(|word| normalize_correction_token(word))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn apply_correction_dictionary(text: &str, entries: &[CorrectionPair]) -> String {
+    if entries.is_empty() {
+        return text.to_string();
+    }
+
+    let normalized_entries: Vec<(Vec<String>, &str)> = entries
+        .iter()
+        .filter_map(|entry| {
+            let wrong_words: Vec<String> = entry
+                .wrong
+                .split_whitespace()
+                .map(normalize_correction_token)
+                .filter(|word| !word.is_empty())
+                .collect();
+
+            if wrong_words.is_empty() || entry.correct.trim().is_empty() {
+                None
+            } else {
+                Some((wrong_words, entry.correct.trim()))
+            }
+        })
+        .collect();
+
+    if normalized_entries.is_empty() {
+        return text.to_string();
+    }
+
+    let max_phrase_len = normalized_entries
+        .iter()
+        .map(|(wrong_words, _)| wrong_words.len())
+        .max()
+        .unwrap_or(1);
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < words.len() {
+        let mut matched = false;
+
+        for n in (1..=max_phrase_len).rev() {
+            if i + n > words.len() {
+                continue;
+            }
+
+            let phrase_words = &words[i..i + n];
+            let normalized_phrase = build_correction_phrase(phrase_words);
+            if normalized_phrase.is_empty() {
+                continue;
+            }
+
+            if let Some((_, replacement)) = normalized_entries.iter().find(|(wrong_words, _)| {
+                wrong_words.len() == n && wrong_words.join(" ") == normalized_phrase
+            }) {
+                let (prefix, _) = extract_punctuation(phrase_words[0]);
+                let (_, suffix) = extract_punctuation(phrase_words[n - 1]);
+                let corrected = if n == 1 {
+                    preserve_case_pattern(phrase_words[0], replacement)
+                } else if phrase_words[0]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
+                    preserve_case_pattern(phrase_words[0], replacement)
+                } else {
+                    (*replacement).to_string()
+                };
+
+                result.push(format!("{}{}{}", prefix, corrected, suffix));
+                i += n;
+                matched = true;
+                break;
+            }
+        }
+
+        if !matched {
+            result.push(words[i].to_string());
+            i += 1;
+        }
+    }
+
+    result.join(" ")
+}
+
 fn preserve_case_pattern(original: &str, replacement: &str) -> String {
     if original.chars().all(|c| c.is_uppercase()) {
         replacement.to_uppercase()
@@ -337,6 +437,28 @@ mod tests {
         let custom_words = vec!["hello".to_string(), "world".to_string()];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_apply_correction_dictionary_exact_match() {
+        let text = "teh world";
+        let entries = vec![CorrectionPair {
+            wrong: "teh".to_string(),
+            correct: "the".to_string(),
+        }];
+        let result = apply_correction_dictionary(text, &entries);
+        assert_eq!(result, "the world");
+    }
+
+    #[test]
+    fn test_apply_correction_dictionary_phrase_match() {
+        let text = "I use open ai every day";
+        let entries = vec![CorrectionPair {
+            wrong: "open ai".to_string(),
+            correct: "OpenAI".to_string(),
+        }];
+        let result = apply_correction_dictionary(text, &entries);
+        assert_eq!(result, "I use OpenAI every day");
     }
 
     #[test]

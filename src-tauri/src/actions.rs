@@ -516,9 +516,12 @@ impl ShortcutAction for TranscribeAction {
                         let err_msg = format!("{}", err);
                         error!("Transcription error: {}", err_msg);
                         // Emit an event so the frontend can display the error visually
-                        let _ = ah.emit("transcription-error", serde_json::json!({
-                            "error": err_msg
-                        }));
+                        let _ = ah.emit(
+                            "transcription-error",
+                            serde_json::json!({
+                                "error": err_msg
+                            }),
+                        );
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
                     }

@@ -14,7 +14,8 @@
     "postProcessing": "Nachbearbeitung",
     "history": "Verlauf",
     "debug": "Debug",
-    "about": "Info"
+    "about": "Info",
+    "correctionDictionary": "Dictionary"
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
@@ -138,7 +139,15 @@
   "settings": {
     "modelSettings": {
       "title": "{{model}}-Einstellungen",
-      "noSettingsNeeded": "Dieses Modell funktioniert automatisch ohne Konfiguration."
+      "noSettingsNeeded": "Dieses Modell funktioniert automatisch ohne Konfiguration.",
+      "remoteUrl": {
+        "label": "Remote Server URL",
+        "description": "URL of the remote transcription server (e.g. http://localhost:3000)"
+      },
+      "remoteToken": {
+        "label": "API Token",
+        "description": "Optional API token for authentication with the remote server"
+      }
     },
     "models": {
       "title": "Transkriptionsmodelle",
@@ -393,7 +402,10 @@
       "save": "Transkription speichern",
       "unsave": "Aus Gespeicherten entfernen",
       "delete": "Eintrag löschen",
-      "deleteError": "Eintrag konnte nicht gelöscht werden. Bitte versuche es erneut."
+      "deleteError": "Eintrag konnte nicht gelöscht werden. Bitte versuche es erneut.",
+      "addCorrection": "Add correction to dictionary",
+      "addCorrectionDescription": "Enter the mistaken word or phrase from this transcript and the version you want Handy to output next time.",
+      "saveCorrection": "Save correction"
     },
     "debug": {
       "title": "Debug",
@@ -494,6 +506,41 @@
           "description": "Hochleistungs-Inferenz des Whisper-Spracherkennungsmodells von OpenAI",
           "details": "Handy verwendet Whisper.cpp für schnelle, lokale Sprach-zu-Text-Verarbeitung. Dank an Georgi Gerganov und die Mitwirkenden für ihre großartige Arbeit."
         }
+      }
+    },
+    "correctionDictionary": {
+      "title": "Correction Dictionary",
+      "description": "Save explicit replacements like wrong → correct and apply them before fuzzy custom-word corrections.",
+      "entriesTitle": "Saved Corrections",
+      "empty": "No saved corrections yet.",
+      "fields": {
+        "wrong": "Heard incorrectly",
+        "correct": "Replace with"
+      },
+      "add": {
+        "title": "Add Correction",
+        "description": "Create a deterministic replacement pair for words or short phrases.",
+        "button": "Add to Dictionary"
+      },
+      "actions": {
+        "save": "Save",
+        "remove": "Remove"
+      },
+      "suggestions": {
+        "label": "Suggest corrections after editing pasted text",
+        "description": "Experimental macOS-only feature. For 5 seconds after paste, Handy watches the focused input and offers to save a detected one-word replacement.",
+        "descriptionUnavailable": "This experimental feature is available only on macOS. For 5 seconds after paste, Handy watches the focused input and offers to save a detected one-word replacement."
+      },
+      "modal": {
+        "title": "Save correction to dictionary?",
+        "description": "Handy noticed that you edited the pasted text. You can save this replacement for future transcriptions.",
+        "dismiss": "Dismiss",
+        "save": "Save Correction"
+      },
+      "messages": {
+        "invalid": "Please enter two different values.",
+        "duplicate": "\"{{wrong}}\" is already in the dictionary.",
+        "saved": "Correction saved to dictionary."
       }
     }
   },

@@ -20,13 +20,41 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
-    OverlayPosition, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, CorrectionPair, KeyboardImplementation,
+    LLMPrompt, OverlayPosition, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
     APPLE_INTELLIGENCE_DEFAULT_MODEL_ID, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
 
 // Note: Commands are accessed via shortcut::handy_keys:: in lib.rs
+
+fn normalize_correction_dictionary(entries: Vec<CorrectionPair>) -> Vec<CorrectionPair> {
+    let mut normalized: Vec<CorrectionPair> = Vec::new();
+
+    for entry in entries {
+        let wrong = entry.wrong.trim();
+        let correct = entry.correct.trim();
+
+        if wrong.is_empty() || correct.is_empty() || wrong.eq_ignore_ascii_case(correct) {
+            continue;
+        }
+
+        if let Some(existing) = normalized
+            .iter_mut()
+            .find(|existing| existing.wrong.eq_ignore_ascii_case(wrong))
+        {
+            existing.correct = correct.to_string();
+        } else {
+            normalized.push(CorrectionPair {
+                wrong: wrong.to_string(),
+                correct: correct.to_string(),
+            });
+        }
+    }
+
+    normalized.sort_by(|a, b| a.wrong.to_lowercase().cmp(&b.wrong.to_lowercase()));
+    normalized
+}
 
 /// Initialize shortcuts using the configured implementation
 pub fn init_shortcuts(app: &AppHandle) {
@@ -648,6 +676,30 @@ pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), Str
 
 #[tauri::command]
 #[specta::specta]
+pub fn update_correction_dictionary(
+    app: AppHandle,
+    entries: Vec<CorrectionPair>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.correction_dictionary = normalize_correction_dictionary(entries);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_track_input_correction_suggestions_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.track_input_correction_suggestions = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_word_correction_threshold_setting(
     app: AppHandle,
     threshold: f64,
@@ -815,7 +867,10 @@ pub fn change_remote_server_url_setting(app: AppHandle, url: String) -> Result<(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_remote_server_token_setting(app: AppHandle, token: Option<String>) -> Result<(), String> {
+pub fn change_remote_server_token_setting(
+    app: AppHandle,
+    token: Option<String>,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.remote_server_token = token;
     settings::write_settings(&app, settings);

@@ -14,7 +14,8 @@
     "postProcessing": "后处理",
     "history": "历史记录",
     "debug": "调试",
-    "about": "关于"
+    "about": "关于",
+    "correctionDictionary": "Dictionary"
   },
   "onboarding": {
     "subtitle": "请选择一个转录模型以开始使用",
@@ -138,7 +139,15 @@
   "settings": {
     "modelSettings": {
       "title": "{{model}} 设置",
-      "noSettingsNeeded": "此模型自动运行，无需配置。"
+      "noSettingsNeeded": "此模型自动运行，无需配置。",
+      "remoteUrl": {
+        "label": "Remote Server URL",
+        "description": "URL of the remote transcription server (e.g. http://localhost:3000)"
+      },
+      "remoteToken": {
+        "label": "API Token",
+        "description": "Optional API token for authentication with the remote server"
+      }
     },
     "models": {
       "title": "转录模型",
@@ -393,7 +402,10 @@
       "save": "保存转录",
       "unsave": "从已保存中移除",
       "delete": "删除条目",
-      "deleteError": "删除条目失败，请重试。"
+      "deleteError": "删除条目失败，请重试。",
+      "addCorrection": "Add correction to dictionary",
+      "addCorrectionDescription": "Enter the mistaken word or phrase from this transcript and the version you want Handy to output next time.",
+      "saveCorrection": "Save correction"
     },
     "debug": {
       "title": "调试",
@@ -494,6 +506,41 @@
           "description": "OpenAI Whisper 自动语音识别模型的高性能推理",
           "details": "Handy 使用 Whisper.cpp 进行快速的本地语音转文字处理。感谢 Georgi Gerganov 和贡献者们的出色工作。"
         }
+      }
+    },
+    "correctionDictionary": {
+      "title": "Correction Dictionary",
+      "description": "Save explicit replacements like wrong → correct and apply them before fuzzy custom-word corrections.",
+      "entriesTitle": "Saved Corrections",
+      "empty": "No saved corrections yet.",
+      "fields": {
+        "wrong": "Heard incorrectly",
+        "correct": "Replace with"
+      },
+      "add": {
+        "title": "Add Correction",
+        "description": "Create a deterministic replacement pair for words or short phrases.",
+        "button": "Add to Dictionary"
+      },
+      "actions": {
+        "save": "Save",
+        "remove": "Remove"
+      },
+      "suggestions": {
+        "label": "Suggest corrections after editing pasted text",
+        "description": "Experimental macOS-only feature. For 5 seconds after paste, Handy watches the focused input and offers to save a detected one-word replacement.",
+        "descriptionUnavailable": "This experimental feature is available only on macOS. For 5 seconds after paste, Handy watches the focused input and offers to save a detected one-word replacement."
+      },
+      "modal": {
+        "title": "Save correction to dictionary?",
+        "description": "Handy noticed that you edited the pasted text. You can save this replacement for future transcriptions.",
+        "dismiss": "Dismiss",
+        "save": "Save Correction"
+      },
+      "messages": {
+        "invalid": "Please enter two different values.",
+        "duplicate": "\"{{wrong}}\" is already in the dictionary.",
+        "saved": "Correction saved to dictionary."
       }
     }
   },

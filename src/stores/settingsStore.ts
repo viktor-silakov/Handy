@@ -109,6 +109,10 @@ const settingUpdaters: {
     commands.changeOverlayPositionSetting(value as string),
   debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),
   custom_words: (value) => commands.updateCustomWords(value as string[]),
+  correction_dictionary: (value) =>
+    commands.updateCorrectionDictionary(value as any),
+  track_input_correction_suggestions: (value) =>
+    commands.changeTrackInputCorrectionSuggestionsSetting(value as boolean),
   word_correction_threshold: (value) =>
     commands.changeWordCorrectionThresholdSetting(value as number),
   paste_method: (value) => commands.changePasteMethodSetting(value as string),
@@ -309,15 +313,15 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => ({
           settings: state.settings
             ? {
-              ...state.settings,
-              bindings: {
-                ...state.settings.bindings,
-                [id]: {
-                  ...state.settings.bindings[id]!,
-                  current_binding: binding,
+                ...state.settings,
+                bindings: {
+                  ...state.settings.bindings,
+                  [id]: {
+                    ...state.settings.bindings[id]!,
+                    current_binding: binding,
+                  },
                 },
-              },
-            }
+              }
             : null,
         }));
 
@@ -340,15 +344,15 @@ export const useSettingsStore = create<SettingsStore>()(
           set((state) => ({
             settings: state.settings
               ? {
-                ...state.settings,
-                bindings: {
-                  ...state.settings.bindings,
-                  [id]: {
-                    ...state.settings.bindings[id]!,
-                    current_binding: originalBinding,
+                  ...state.settings,
+                  bindings: {
+                    ...state.settings.bindings,
+                    [id]: {
+                      ...state.settings.bindings[id]!,
+                      current_binding: originalBinding,
+                    },
                   },
-                },
-              }
+                }
               : null,
           }));
         }

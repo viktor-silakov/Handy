@@ -1,3 +1,4 @@
+use crate::correction_tracking;
 use crate::input::{self, EnigoState};
 #[cfg(target_os = "linux")]
 use crate::settings::TypingTool;
@@ -657,6 +658,14 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         clipboard
             .write_text(&text)
             .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
+    }
+
+    if paste_method != PasteMethod::None {
+        correction_tracking::maybe_track_post_paste_edits(
+            app_handle.clone(),
+            text.clone(),
+            settings.auto_submit,
+        );
     }
 
     Ok(())

@@ -6,6 +6,7 @@ pub mod audio_toolkit;
 pub mod cli;
 mod clipboard;
 mod commands;
+mod correction_tracking;
 mod helpers;
 mod input;
 mod llm_client;
@@ -273,6 +274,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_selected_language_setting,
         shortcut::change_overlay_position_setting,
         shortcut::change_debug_mode_setting,
+        shortcut::update_correction_dictionary,
+        shortcut::change_track_input_correction_suggestions_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
         shortcut::get_available_typing_tools,

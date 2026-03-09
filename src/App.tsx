@@ -9,12 +9,17 @@ import {
 } from "tauri-plugin-macos-permissions-api";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
+import { CorrectionSuggestionModal } from "./components/CorrectionSuggestionModal";
 import Footer from "./components/footer";
 import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
-import { commands } from "@/bindings";
+import { commands, type CorrectionPair } from "@/bindings";
+import {
+  upsertCorrectionPair,
+  normalizeCorrectionPair,
+} from "@/lib/utils/correctionDictionary";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
 type OnboardingStep = "accessibility" | "model" | "done";
@@ -26,7 +31,7 @@ const renderSettingsContent = (section: SidebarSection) => {
 };
 
 function App() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep | null>(
     null,
   );
@@ -36,6 +41,10 @@ function App() {
   const [currentSection, setCurrentSection] =
     useState<SidebarSection>("general");
   const { settings, updateSetting } = useSettings();
+  const [correctionSuggestion, setCorrectionSuggestion] =
+    useState<CorrectionPair | null>(null);
+  const [isSavingCorrectionSuggestion, setIsSavingCorrectionSuggestion] =
+    useState(false);
   const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
@@ -71,16 +80,54 @@ function App() {
 
   // Listen for transcription errors and show toast notifications
   useEffect(() => {
-    const unlisten = listen<{ error: string }>("transcription-error", (event) => {
-      toast.error("Transcription Error", {
-        description: event.payload.error,
-        duration: 8000,
-      });
-    });
+    const unlisten = listen<{ error: string }>(
+      "transcription-error",
+      (event) => {
+        toast.error("Transcription Error", {
+          description: event.payload.error,
+          duration: 8000,
+        });
+      },
+    );
     return () => {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  useEffect(() => {
+    const unlisten = listen<CorrectionPair>(
+      "correction-suggestion",
+      (event) => {
+        setCorrectionSuggestion(event.payload);
+      },
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const handleSaveCorrectionSuggestion = async (entry: CorrectionPair) => {
+    const normalized = normalizeCorrectionPair(entry);
+
+    if (!normalized) {
+      toast.error(t("settings.correctionDictionary.messages.invalid"));
+      return;
+    }
+
+    setIsSavingCorrectionSuggestion(true);
+
+    try {
+      await updateSetting(
+        "correction_dictionary",
+        upsertCorrectionPair(settings?.correction_dictionary ?? [], normalized),
+      );
+      setCorrectionSuggestion(null);
+      toast.success(t("settings.correctionDictionary.messages.saved"));
+    } finally {
+      setIsSavingCorrectionSuggestion(false);
+    }
+  };
 
   // Handle keyboard shortcuts for debug mode toggle
   useEffect(() => {
@@ -203,6 +250,12 @@ function App() {
       </div>
       {/* Fixed footer at bottom */}
       <Footer />
+      <CorrectionSuggestionModal
+        suggestion={correctionSuggestion}
+        isSaving={isSavingCorrectionSuggestion}
+        onClose={() => setCorrectionSuggestion(null)}
+        onSave={handleSaveCorrectionSuggestion}
+      />
     </div>
   );
 }
