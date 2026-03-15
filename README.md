@@ -41,8 +41,9 @@ Handy is an open-source, fast, and local transcription tool that lives in your m
 ### Installation
 
 1. Download the latest release from the [releases page](https://github.com/viktor-silakov/Handy/releases) or the [website](https://handy.computer)
-   - **macOS**: Also available via [Homebrew cask](https://formulae.brew.sh/cask/handy): `brew install --cask handy` \
-     **Note:** The Homebrew cask is not maintained by the Handy developers.
+   - **macOS**: Also available via [Homebrew cask](https://formulae.brew.sh/cask/handy): `brew install --cask handy`
+   - **Windows**: Also available via [winget](https://github.com/microsoft/winget-pkgs): `winget install cjpais.Handy` \
+     **Note:** The Homebrew cask and winget package are not maintained by the Handy developers.
 2. Move **Handy.app** to your `/Applications` folder.
 3. Launch and follow the onboarding to set up your primary transcription model.
 
