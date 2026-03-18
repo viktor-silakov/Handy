@@ -5,7 +5,8 @@
     "copyLastTranscript": "نسخ آخر نص تم تفريغه",
     "unloadModel": "تفريغ النموذج",
     "quit": "إنهاء",
-    "cancel": "إلغاء"
+    "cancel": "إلغاء",
+    "model": "النماذج"
   },
   "sidebar": {
     "general": "عام",

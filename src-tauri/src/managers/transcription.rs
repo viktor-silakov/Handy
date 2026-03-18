@@ -156,6 +156,19 @@ enum LoadedEngine {
     Remote(RemoteEngine),
 }
 
+pub struct LoadingGuard {
+    is_loading: Arc<Mutex<bool>>,
+    loading_condvar: Arc<Condvar>,
+}
+
+impl Drop for LoadingGuard {
+    fn drop(&mut self) {
+        let mut is_loading = self.is_loading.lock().unwrap();
+        *is_loading = false;
+        self.loading_condvar.notify_all();
+    }
+}
+
 #[derive(Clone)]
 pub struct TranscriptionManager {
     engine: Arc<Mutex<Option<LoadedEngine>>>,
@@ -194,10 +207,10 @@ impl TranscriptionManager {
             let manager_cloned = manager.clone();
             let shutdown_signal = manager.shutdown_signal.clone();
             let handle = thread::spawn(move || {
+                debug!("Idle watcher thread started");
                 while !shutdown_signal.load(Ordering::Relaxed) {
-                    thread::sleep(Duration::from_secs(10)); // Check every 10 seconds
+                    thread::sleep(Duration::from_secs(10));
 
-                    // Check shutdown signal again after sleep
                     if shutdown_signal.load(Ordering::Relaxed) {
                         break;
                     }
@@ -206,7 +219,6 @@ impl TranscriptionManager {
                     let timeout_seconds = settings.model_unload_timeout.to_seconds();
 
                     if let Some(limit_seconds) = timeout_seconds {
-                        // Skip polling-based unloading for immediate timeout since it's handled directly in transcribe()
                         if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
                             continue;
                         }
@@ -216,28 +228,26 @@ impl TranscriptionManager {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_millis() as u64;
+                        let idle_ms = now_ms.saturating_sub(last);
+                        let limit_ms = limit_seconds * 1000;
 
-                        if now_ms.saturating_sub(last) > limit_seconds * 1000 {
-                            // idle -> unload
-                            if manager_cloned.is_model_loaded() {
-                                let unload_start = std::time::Instant::now();
-                                debug!("Starting to unload model due to inactivity");
-
-                                if let Ok(()) = manager_cloned.unload_model() {
-                                    let _ = app_handle_cloned.emit(
-                                        "model-state-changed",
-                                        ModelStateEvent {
-                                            event_type: "unloaded".to_string(),
-                                            model_id: None,
-                                            model_name: None,
-                                            error: None,
-                                        },
-                                    );
+                        if idle_ms > limit_ms && manager_cloned.is_model_loaded() {
+                            let unload_start = std::time::Instant::now();
+                            info!(
+                                "Model idle for {}s (limit: {}s), unloading",
+                                idle_ms / 1000,
+                                limit_seconds
+                            );
+                            match manager_cloned.unload_model() {
+                                Ok(()) => {
                                     let unload_duration = unload_start.elapsed();
-                                    debug!(
+                                    info!(
                                         "Model unloaded due to inactivity (took {}ms)",
                                         unload_duration.as_millis()
                                     );
+                                }
+                                Err(e) => {
+                                    error!("Failed to unload idle model: {}", e);
                                 }
                             }
                         }
@@ -262,6 +272,18 @@ impl TranscriptionManager {
     pub fn is_model_loaded(&self) -> bool {
         let engine = self.lock_engine();
         engine.is_some()
+    }
+
+    pub fn try_start_loading(&self) -> Option<LoadingGuard> {
+        let mut is_loading = self.is_loading.lock().unwrap();
+        if *is_loading {
+            return None;
+        }
+        *is_loading = true;
+        Some(LoadingGuard {
+            is_loading: self.is_loading.clone(),
+            loading_condvar: self.loading_condvar.clone(),
+        })
     }
 
     pub fn unload_model(&self) -> Result<()> {
@@ -497,6 +519,14 @@ impl TranscriptionManager {
             *current_model = Some(model_id.to_string());
         }
 
+        self.last_activity.store(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            Ordering::Relaxed,
+        );
+
         // Emit loading completed event
         let _ = self.app_handle.emit(
             "model-state-changed",
@@ -517,23 +547,27 @@ impl TranscriptionManager {
         Ok(())
     }
 
-    /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
-        if *is_loading || self.is_model_loaded() {
+        let settings = get_settings(&self.app_handle);
+        let selected_model = settings.selected_model;
+
+        if selected_model.is_empty()
+            || (self.is_model_loaded()
+                && self.get_current_model().as_deref() == Some(selected_model.as_str()))
+        {
             return;
         }
 
-        *is_loading = true;
+        let Some(loading_guard) = self.try_start_loading() else {
+            return;
+        };
+
         let self_clone = self.clone();
         thread::spawn(move || {
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
+            let _loading_guard = loading_guard;
+            if let Err(e) = self_clone.load_model(&selected_model) {
                 error!("Failed to load model: {}", e);
             }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 
@@ -778,12 +812,13 @@ impl TranscriptionManager {
 
 impl Drop for TranscriptionManager {
     fn drop(&mut self) {
-        debug!("Shutting down TranscriptionManager");
+        if Arc::strong_count(&self.engine) > 1 {
+            return;
+        }
 
-        // Signal the watcher thread to shutdown
+        debug!("Shutting down TranscriptionManager");
         self.shutdown_signal.store(true, Ordering::Relaxed);
 
-        // Wait for the thread to finish gracefully
         if let Some(handle) = self.watcher_handle.lock().unwrap().take() {
             if let Err(e) = handle.join() {
                 warn!("Failed to join idle watcher thread: {:?}", e);

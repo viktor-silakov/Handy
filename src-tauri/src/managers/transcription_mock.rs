@@ -16,6 +16,8 @@ pub struct ModelStateEvent {
     pub error: Option<String>,
 }
 
+pub struct LoadingGuard;
+
 #[derive(Clone)]
 pub struct TranscriptionManager {
     #[allow(dead_code)]
@@ -31,6 +33,10 @@ impl TranscriptionManager {
 
     pub fn is_model_loaded(&self) -> bool {
         false
+    }
+
+    pub fn try_start_loading(&self) -> Option<LoadingGuard> {
+        Some(LoadingGuard)
     }
 
     pub fn unload_model(&self) -> Result<()> {

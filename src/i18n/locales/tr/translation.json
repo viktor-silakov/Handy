@@ -5,7 +5,8 @@
     "copyLastTranscript": "Son transkripti kopyala",
     "unloadModel": "Modeli boşalt",
     "quit": "Çıkış",
-    "cancel": "İptal"
+    "cancel": "İptal",
+    "model": "Modeller"
   },
   "sidebar": {
     "general": "Genel",

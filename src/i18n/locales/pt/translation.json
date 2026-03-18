@@ -5,7 +5,8 @@
     "copyLastTranscript": "Copiar última transcrição",
     "unloadModel": "Descarregar modelo",
     "quit": "Sair",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "model": "Modelos"
   },
   "sidebar": {
     "general": "Geral",

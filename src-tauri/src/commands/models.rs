@@ -1,8 +1,8 @@
 use crate::managers::model::{ModelInfo, ModelManager};
-use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, write_settings};
+use crate::managers::transcription::{ModelStateEvent, TranscriptionManager};
+use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 #[specta::specta]
@@ -58,34 +58,66 @@ pub async fn delete_model(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn set_active_model(
-    app_handle: AppHandle,
-    model_manager: State<'_, Arc<ModelManager>>,
-    transcription_manager: State<'_, Arc<TranscriptionManager>>,
-    model_id: String,
-) -> Result<(), String> {
-    // Check if model exists and is available
+pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String> {
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+
+    let _loading_guard = transcription_manager
+        .try_start_loading()
+        .ok_or_else(|| "Model load already in progress".to_string())?;
+
     let model_info = model_manager
-        .get_model_info(&model_id)
+        .get_model_info(model_id)
         .ok_or_else(|| format!("Model not found: {}", model_id))?;
 
     if !model_info.is_downloaded {
         return Err(format!("Model not downloaded: {}", model_id));
     }
 
-    // Load the model in the transcription manager
-    transcription_manager
-        .load_model(&model_id)
-        .map_err(|e| e.to_string())?;
+    let settings = get_settings(app);
+    let unload_timeout = settings.model_unload_timeout;
+    let old_model = settings.selected_model.clone();
 
-    // Update settings
-    let mut settings = get_settings(&app_handle);
-    settings.selected_model = model_id.clone();
-    write_settings(&app_handle, settings);
+    let mut settings = settings;
+    settings.selected_model = model_id.to_string();
+    write_settings(app, settings);
+
+    if unload_timeout == ModelUnloadTimeout::Immediately {
+        let _ = app.emit(
+            "model-state-changed",
+            ModelStateEvent {
+                event_type: "selection_changed".to_string(),
+                model_id: Some(model_id.to_string()),
+                model_name: Some(model_info.name.clone()),
+                error: None,
+            },
+        );
+        log::info!(
+            "Model selection changed to {} (not loading — unload set to Immediately).",
+            model_id
+        );
+        return Ok(());
+    }
+
+    if let Err(e) = transcription_manager.load_model(model_id) {
+        let mut settings = get_settings(app);
+        settings.selected_model = old_model;
+        write_settings(app, settings);
+        return Err(e.to_string());
+    }
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_active_model(
+    app_handle: AppHandle,
+    _model_manager: State<'_, Arc<ModelManager>>,
+    _transcription_manager: State<'_, Arc<TranscriptionManager>>,
+    model_id: String,
+) -> Result<(), String> {
+    switch_active_model(&app_handle, &model_id)
 }
 
 #[tauri::command]

@@ -2,18 +2,12 @@ import React, { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/bindings";
+import { type ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import { useModelStore } from "../../stores/modelStore";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
-
-interface ModelStateEvent {
-  event_type: string;
-  model_id?: string;
-  model_name?: string;
-  error?: string;
-}
 
 type ModelStatus =
   | "ready"

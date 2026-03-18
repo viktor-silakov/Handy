@@ -5,7 +5,8 @@
     "copyLastTranscript": "複製最新轉錄",
     "unloadModel": "卸載模型",
     "quit": "結束",
-    "cancel": "取消"
+    "cancel": "取消",
+    "model": "模型"
   },
   "sidebar": {
     "general": "一般",

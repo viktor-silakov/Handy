@@ -17,6 +17,10 @@ import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands, type CorrectionPair } from "@/bindings";
 import {
+  type ModelStateEvent,
+  type RecordingErrorEvent,
+} from "@/lib/types/events";
+import {
   upsertCorrectionPair,
   normalizeCorrectionPair,
 } from "@/lib/utils/correctionDictionary";
@@ -78,7 +82,6 @@ function App() {
     }
   }, [onboardingStep, refreshAudioDevices, refreshOutputDevices]);
 
-  // Listen for transcription errors and show toast notifications
   useEffect(() => {
     const unlisten = listen<{ error: string }>(
       "transcription-error",
@@ -93,6 +96,47 @@ function App() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  useEffect(() => {
+    const unlisten = listen<RecordingErrorEvent>("recording-error", (event) => {
+      const { error_type, detail } = event.payload;
+
+      if (error_type === "microphone_permission_denied") {
+        const currentPlatform = platform();
+        const platformKey = `errors.micPermissionDenied.${currentPlatform}`;
+        const description = t(platformKey, {
+          defaultValue: t("errors.micPermissionDenied.generic"),
+        });
+        toast.error(t("errors.micPermissionDeniedTitle"), { description });
+      } else {
+        toast.error(
+          t("errors.recordingFailed", { error: detail ?? "Unknown error" }),
+        );
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
+  useEffect(() => {
+    const unlisten = listen<ModelStateEvent>("model-state-changed", (event) => {
+      if (event.payload.event_type === "loading_failed") {
+        toast.error(
+          t("errors.modelLoadFailed", {
+            model:
+              event.payload.model_name || t("errors.modelLoadFailedUnknown"),
+          }),
+          {
+            description: event.payload.error,
+          },
+        );
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
 
   useEffect(() => {
     const unlisten = listen<CorrectionPair>(

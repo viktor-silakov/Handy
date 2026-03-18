@@ -5,7 +5,8 @@
     "copyLastTranscript": "Zkopírovat poslední přepis",
     "unloadModel": "Uvolnit model",
     "quit": "Ukončit",
-    "cancel": "Zrušit"
+    "cancel": "Zrušit",
+    "model": "Modely"
   },
   "sidebar": {
     "general": "Obecné",
