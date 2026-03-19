@@ -1,7 +1,7 @@
-use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 
 // Define the response structure from Swift
+#[allow(dead_code)]
 #[repr(C)]
 pub struct AppleLLMResponse {
     pub response: *mut c_char,

@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,6 +13,7 @@ import i18n, { syncLanguageFromSettings } from "@/i18n";
 import { getLanguageDirection } from "@/lib/utils/rtl";
 
 type OverlayState = "recording" | "transcribing" | "processing";
+const FADE_OUT_MS = 300;
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
@@ -19,26 +21,68 @@ const RecordingOverlay: React.FC = () => {
   const [state, setState] = useState<OverlayState>("recording");
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
+  const dismissedRef = useRef(false);
+  const hideTimeoutRef = useRef<number | null>(null);
   const direction = getLanguageDirection(i18n.language);
+  const overlayWindow = getCurrentWindow();
+
+  const clearHideTimeout = () => {
+    if (hideTimeoutRef.current !== null) {
+      window.clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  };
+
+  const dismissOverlay = async () => {
+    clearHideTimeout();
+    setIsVisible(false);
+    hideTimeoutRef.current = window.setTimeout(() => {
+      hideTimeoutRef.current = null;
+      void overlayWindow.hide();
+    }, FADE_OUT_MS);
+  };
 
   useEffect(() => {
+    let isMounted = true;
+
     const setupEventListeners = async () => {
       // Listen for show-overlay event from Rust
       const unlistenShow = await listen("show-overlay", async (event) => {
         // Sync language from settings each time overlay is shown
         await syncLanguageFromSettings();
+        if (!isMounted) {
+          return;
+        }
         const overlayState = event.payload as OverlayState;
         setState(overlayState);
+
+        if (overlayState === "recording") {
+          dismissedRef.current = false;
+        }
+
+        clearHideTimeout();
+
+        if (dismissedRef.current && overlayState !== "recording") {
+          setIsVisible(false);
+          void overlayWindow.hide();
+          return;
+        }
+
         setIsVisible(true);
       });
 
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
+        dismissedRef.current = false;
+        clearHideTimeout();
         setIsVisible(false);
       });
 
       // Listen for mic-level updates
       const unlistenLevel = await listen<number[]>("mic-level", (event) => {
+        if (!isMounted) {
+          return;
+        }
         const newLevels = event.payload as number[];
 
         // Apply smoothing to reduce jitter
@@ -51,16 +95,42 @@ const RecordingOverlay: React.FC = () => {
         setLevels(smoothed.slice(0, 9));
       });
 
-      // Cleanup function
-      return () => {
-        unlistenShow();
-        unlistenHide();
-        unlistenLevel();
-      };
+      return [unlistenShow, unlistenHide, unlistenLevel] as const;
     };
 
-    setupEventListeners();
+    let unlisteners:
+      | readonly [() => void, () => void, () => void]
+      | undefined;
+
+    void setupEventListeners().then((cleanupFns) => {
+      if (!isMounted) {
+        cleanupFns.forEach((fn) => fn());
+        return;
+      }
+      unlisteners = cleanupFns;
+    });
+
+    return () => {
+      isMounted = false;
+      clearHideTimeout();
+      unlisteners?.forEach((fn) => fn());
+    };
   }, []);
+
+  const isRecording = state === "recording";
+  const actionLabel = isRecording
+    ? t("cancel")
+    : t("accessibility.dismiss");
+
+  const handleActionClick = async () => {
+    if (isRecording) {
+      await commands.cancelOperation();
+      return;
+    }
+
+    dismissedRef.current = true;
+    await dismissOverlay();
+  };
 
   const getIcon = () => {
     if (state === "recording") {
@@ -102,16 +172,17 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-right">
-        {state === "recording" && (
-          <div
-            className="cancel-button"
-            onClick={() => {
-              commands.cancelOperation();
-            }}
-          >
-            <CancelIcon />
-          </div>
-        )}
+        <button
+          type="button"
+          className="cancel-button"
+          onClick={() => {
+            void handleActionClick();
+          }}
+          aria-label={actionLabel}
+          title={actionLabel}
+        >
+          <CancelIcon />
+        </button>
       </div>
     </div>
   );

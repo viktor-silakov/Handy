@@ -86,11 +86,7 @@ fn generate_tray_translations() {
 
     fs::write(Path::new(&out_dir).join("tray_translations.rs"), out).unwrap();
 
-    println!(
-        "cargo:warning=Generated tray translations: {} languages, {} fields",
-        translations.len(),
-        fields.len()
-    );
+    let _ = (translations.len(), fields.len());
 }
 
 fn camel_to_snake(s: &str) -> String {
@@ -113,6 +109,7 @@ fn escape_string(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
+#[allow(dead_code)]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn build_apple_intelligence_bridge() {
     use std::env;

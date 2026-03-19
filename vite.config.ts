@@ -19,6 +19,7 @@ export default defineConfig(async () => ({
 
   // Multiple entry points for main app and overlay
   build: {
+    chunkSizeWarningLimit: 550,
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
