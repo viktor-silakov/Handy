@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -52,6 +53,10 @@ function createDmg(root: string) {
   const dmgBundleDir = join(root, "src-tauri/target/release/bundle/dmg");
   const appPath = join(macosBundleDir, `${productName}.app`);
   const dmgPath = join(dmgBundleDir, `${productName}_${version}_${arch}.dmg`);
+
+  if (!existsSync(dmgBundleDir)) {
+    mkdirSync(dmgBundleDir, { recursive: true });
+  }
 
   const stageDir = mkdtempSync(join(tmpdir(), `${productName}-dmg-stage-`));
   cpSync(appPath, join(stageDir, `${productName}.app`), { recursive: true });
