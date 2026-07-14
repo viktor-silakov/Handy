@@ -1,10 +1,9 @@
-use crate::correction_tracking;
 use crate::input::{self, EnigoState};
 #[cfg(target_os = "linux")]
 use crate::settings::TypingTool;
 use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
 use enigo::{Direction, Enigo, Key, Keyboard};
-use log::{debug, info};
+use log::info;
 use std::process::Command;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
@@ -13,90 +12,17 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[cfg(target_os = "linux")]
 use crate::utils::{is_kde_wayland, is_wayland};
 
-const MIN_CLIPBOARD_RESTORE_DELAY_MS: u64 = 300;
-const CLIPBOARD_RESTORE_DELAY_MULTIPLIER: u64 = 3;
-const CLIPBOARD_VERIFY_ATTEMPTS: usize = 5;
-const CLIPBOARD_VERIFY_RETRY_DELAY_MS: u64 = 25;
-
-fn clipboard_restore_delay_ms(paste_delay_ms: u64) -> u64 {
-    paste_delay_ms
-        .saturating_mul(CLIPBOARD_RESTORE_DELAY_MULTIPLIER)
-        .max(MIN_CLIPBOARD_RESTORE_DELAY_MS)
-}
-
-fn should_restore_clipboard(current_content: &str, pasted_text: &str) -> bool {
-    current_content == pasted_text
-}
-
-#[cfg(target_os = "linux")]
-fn should_verify_clipboard_before_paste() -> bool {
-    false
-}
-
-#[cfg(not(target_os = "linux"))]
-fn should_verify_clipboard_before_paste() -> bool {
-    true
-}
-
-fn wait_for_expected_clipboard_text<F>(expected_text: &str, mut read_text: F) -> bool
-where
-    F: FnMut() -> Result<String, String>,
-{
-    for attempt in 0..CLIPBOARD_VERIFY_ATTEMPTS {
-        match read_text() {
-            Ok(current_text) if current_text == expected_text => return true,
-            Ok(current_text) => {
-                debug!(
-                    "Clipboard verification mismatch on attempt {}/{}: expected {} chars, got {} chars",
-                    attempt + 1,
-                    CLIPBOARD_VERIFY_ATTEMPTS,
-                    expected_text.len(),
-                    current_text.len()
-                );
-            }
-            Err(err) => {
-                debug!(
-                    "Clipboard verification read failed on attempt {}/{}: {}",
-                    attempt + 1,
-                    CLIPBOARD_VERIFY_ATTEMPTS,
-                    err
-                );
-            }
-        }
-
-        if attempt + 1 < CLIPBOARD_VERIFY_ATTEMPTS {
-            std::thread::sleep(Duration::from_millis(CLIPBOARD_VERIFY_RETRY_DELAY_MS));
-        }
-    }
-
-    false
-}
-
-/// Pastes text using the clipboard: saves current content, writes text, sends
-/// paste keystroke, then restores the original clipboard after a settle window.
+/// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard(
     enigo: &mut Enigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
-    clipboard_handling: ClipboardHandling,
+    paste_delay_after_ms: u64,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
-    let original_clipboard_content = if clipboard_handling == ClipboardHandling::DontModify {
-        match clipboard.read_text() {
-            Ok(content) => Some(content),
-            Err(err) => {
-                info!(
-                    "Could not snapshot clipboard before paste, restore will be skipped: {}",
-                    err
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let clipboard_content = clipboard.read_text().unwrap_or_default();
 
     // Write text to clipboard first
     // On Wayland, prefer wl-copy for better compatibility (especially with umlauts)
@@ -117,29 +43,7 @@ fn paste_via_clipboard(
 
     write_result?;
 
-    if should_verify_clipboard_before_paste()
-        && !wait_for_expected_clipboard_text(text, || {
-            clipboard.read_text().map_err(|e| e.to_string())
-        })
-    {
-        return Err(
-            "Clipboard did not update to the new transcription in time; aborting paste to avoid stale clipboard insertion"
-                .into(),
-        );
-    }
-
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
-
-    if should_verify_clipboard_before_paste()
-        && !wait_for_expected_clipboard_text(text, || {
-            clipboard.read_text().map_err(|e| e.to_string())
-        })
-    {
-        return Err(
-            "Clipboard changed before paste keypress; aborting paste to avoid stale clipboard insertion"
-                .into(),
-        );
-    }
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -158,41 +62,19 @@ fn paste_via_clipboard(
         }
     }
 
-    if clipboard_handling != ClipboardHandling::DontModify {
-        return Ok(());
-    }
+    std::thread::sleep(Duration::from_millis(paste_delay_after_ms));
 
-    let restore_delay_ms = clipboard_restore_delay_ms(paste_delay_ms);
-    debug!(
-        "Waiting {}ms before clipboard restore to let the target app consume paste",
-        restore_delay_ms
-    );
-    std::thread::sleep(Duration::from_millis(restore_delay_ms));
-
-    if let Some(clipboard_content) = original_clipboard_content {
-        let current_clipboard_content = clipboard.read_text().unwrap_or_default();
-        if should_restore_clipboard(&current_clipboard_content, text) {
-            // Restore original clipboard content only when the clipboard still
-            // contains the text Handy just wrote. This avoids clobbering user
-            // copies or other clipboard updates that happened after paste.
-            #[cfg(target_os = "linux")]
-            if is_wayland() && is_wl_copy_available() {
-                let _ = write_clipboard_via_wl_copy(&clipboard_content);
-            } else {
-                let _ = clipboard.write_text(&clipboard_content);
-            }
-
-            #[cfg(not(target_os = "linux"))]
-            let _ = clipboard.write_text(&clipboard_content);
-        } else {
-            info!("Skipping clipboard restore because clipboard changed after paste");
-        }
+    // Restore original clipboard content
+    // On Wayland, prefer wl-copy for better compatibility
+    #[cfg(target_os = "linux")]
+    if is_wayland() && is_wl_copy_available() {
+        let _ = write_clipboard_via_wl_copy(&clipboard_content);
     } else {
-        // Restore original clipboard content only when the clipboard still
-        // contains the text Handy just wrote. If the initial snapshot failed,
-        // don't replace the clipboard with an empty fallback.
-        info!("Skipping clipboard restore because initial clipboard snapshot was unavailable");
+        let _ = clipboard.write_text(&clipboard_content);
     }
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = clipboard.write_text(&clipboard_content);
 
     Ok(())
 }
@@ -711,6 +593,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let paste_delay_ms = settings.paste_delay_ms;
+    let paste_delay_after_ms = settings.paste_delay_after_ms;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -720,8 +603,8 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     };
 
     info!(
-        "Using paste method: {:?}, delay: {}ms",
-        paste_method, paste_delay_ms
+        "Using paste method: {:?}, delay before: {}ms, delay after: {}ms",
+        paste_method, paste_delay_ms, paste_delay_after_ms
     );
 
     // Get the managed Enigo instance
@@ -753,7 +636,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                 &app_handle,
                 &paste_method,
                 paste_delay_ms,
-                settings.clipboard_handling,
+                paste_delay_after_ms,
             )?
         }
         PasteMethod::ExternalScript => {
@@ -777,14 +660,6 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         clipboard
             .write_text(&text)
             .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
-    }
-
-    if paste_method != PasteMethod::None {
-        correction_tracking::maybe_track_post_paste_edits(
-            app_handle.clone(),
-            text.clone(),
-            settings.auto_submit,
-        );
     }
 
     Ok(())
@@ -811,66 +686,5 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
-    }
-
-    #[test]
-    fn clipboard_restore_delay_has_minimum_settle_window() {
-        assert_eq!(clipboard_restore_delay_ms(10), 300);
-        assert_eq!(clipboard_restore_delay_ms(60), 300);
-    }
-
-    #[test]
-    fn clipboard_restore_delay_scales_with_paste_delay() {
-        assert_eq!(clipboard_restore_delay_ms(120), 360);
-        assert_eq!(clipboard_restore_delay_ms(200), 600);
-    }
-
-    #[test]
-    fn clipboard_restore_only_runs_when_expected_text_is_still_present() {
-        assert!(should_restore_clipboard(
-            "fresh transcript",
-            "fresh transcript"
-        ));
-        assert!(!should_restore_clipboard(
-            "older clipboard value",
-            "fresh transcript"
-        ));
-    }
-
-    #[test]
-    fn clipboard_verification_succeeds_after_transient_mismatches() {
-        let mut reads = vec![
-            Ok("old clipboard".to_string()),
-            Err("temporary failure".to_string()),
-            Ok("fresh transcript".to_string()),
-        ]
-        .into_iter();
-
-        assert!(wait_for_expected_clipboard_text("fresh transcript", || {
-            reads
-                .next()
-                .unwrap_or_else(|| Ok("fresh transcript".to_string()))
-        }));
-    }
-
-    #[test]
-    fn clipboard_verification_fails_when_expected_text_never_appears() {
-        let mut reads = vec![
-            Ok("old clipboard".to_string()),
-            Ok("still old".to_string()),
-            Err("still failing".to_string()),
-            Ok("other value".to_string()),
-            Ok("other value".to_string()),
-        ]
-        .into_iter();
-
-        assert!(!wait_for_expected_clipboard_text(
-            "fresh transcript",
-            || {
-                reads
-                    .next()
-                    .unwrap_or_else(|| Ok("other value".to_string()))
-            }
-        ));
     }
 }

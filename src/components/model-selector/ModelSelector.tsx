@@ -2,17 +2,19 @@ import React, { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/bindings";
-import { type ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import { useModelStore } from "../../stores/modelStore";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 
+import { ModelStateEvent } from "@/lib/types/events";
+
 type ModelStatus =
   | "ready"
   | "loading"
   | "downloading"
+  | "verifying"
   | "extracting"
   | "error"
   | "unloaded"
@@ -29,6 +31,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     currentModel,
     downloadProgress,
     downloadStats,
+    verifyingModels,
     extractingModels,
     selectModel,
   } = useModelStore();
@@ -151,6 +154,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const getModelDisplayText = (): string => {
+    const verifyingKeys = Object.keys(verifyingModels);
+    if (verifyingKeys.length > 0) {
+      if (verifyingKeys.length === 1) {
+        const modelId = verifyingKeys[0];
+        const model = models.find((m) => m.id === modelId);
+        const modelName = model
+          ? getTranslatedModelName(model, t)
+          : t("modelSelector.verifyingGeneric").replace("...", "");
+        return t("modelSelector.verifying", { modelName });
+      } else {
+        return t("modelSelector.verifyingGeneric");
+      }
+    }
+
     const extractingKeys = Object.keys(extractingModels);
     if (extractingKeys.length > 0) {
       if (extractingKeys.length === 1) {
@@ -219,6 +236,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
 
   // Derive display status from model status + store state
   const getDisplayStatus = (): ModelStatus => {
+    if (Object.keys(verifyingModels).length > 0) return "verifying";
     if (Object.keys(extractingModels).length > 0) return "extracting";
     if (Object.keys(downloadProgress).length > 0) return "downloading";
     return modelStatus;

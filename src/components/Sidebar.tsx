@@ -1,14 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import {
-  BookOpen,
-  Cog,
-  FlaskConical,
-  History,
-  Info,
-  Sparkles,
-  Cpu,
-} from "lucide-react";
+import { Cog, FlaskConical, History, Info, Sparkles, Cpu } from "lucide-react";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
 import { useSettings } from "../hooks/useSettings";
@@ -16,7 +8,6 @@ import {
   GeneralSettings,
   AdvancedSettings,
   HistorySettings,
-  CorrectionDictionarySettings,
   DebugSettings,
   AboutSettings,
   PostProcessingSettings,
@@ -59,10 +50,10 @@ export const SECTIONS_CONFIG = {
     component: AdvancedSettings,
     enabled: () => true,
   },
-  correctionDictionary: {
-    labelKey: "sidebar.correctionDictionary",
-    icon: BookOpen,
-    component: CorrectionDictionarySettings,
+  history: {
+    labelKey: "sidebar.history",
+    icon: History,
+    component: HistorySettings,
     enabled: () => true,
   },
   postprocessing: {
@@ -70,12 +61,6 @@ export const SECTIONS_CONFIG = {
     icon: Sparkles,
     component: PostProcessingSettings,
     enabled: (settings) => settings?.post_process_enabled ?? false,
-  },
-  history: {
-    labelKey: "sidebar.history",
-    icon: History,
-    component: HistorySettings,
-    enabled: () => true,
   },
   debug: {
     labelKey: "sidebar.debug",
