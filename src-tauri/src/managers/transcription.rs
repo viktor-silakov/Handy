@@ -1,4 +1,6 @@
-use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::audio_toolkit::{
+    apply_correction_dictionary, apply_custom_words, filter_transcription_output,
+};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{
@@ -6,7 +8,9 @@ use crate::settings::{
     TranscribeAcceleratorSetting,
 };
 use anyhow::Result;
+use hound::{SampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
+use std::io::Cursor;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -156,6 +160,93 @@ impl StreamRouter {
     }
 }
 
+/// Transcription engine that forwards audio to a remote Handy server over HTTP
+/// (`POST {url}/transcribe`, 16 kHz mono 16-bit WAV body, optional Bearer
+/// token) instead of running a model locally. Selected via the synthetic
+/// "remote-server" model; the server returns `{ "text": "..." }`.
+pub struct RemoteEngine;
+
+impl RemoteEngine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn transcribe_samples(
+        &self,
+        audio: &[f32],
+        url: &str,
+        token: Option<&String>,
+    ) -> Result<String> {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = WavWriter::new(&mut cursor, spec)
+                .map_err(|e| anyhow::anyhow!("Failed to create wav writer: {}", e))?;
+            for &sample in audio {
+                let amplitude = i16::MAX as f32;
+                let sample_i16 = (sample * amplitude).clamp(-amplitude, amplitude) as i16;
+                writer
+                    .write_sample(sample_i16)
+                    .map_err(|e| anyhow::anyhow!("Failed to write sample: {}", e))?;
+            }
+            writer
+                .finalize()
+                .map_err(|e| anyhow::anyhow!("Failed to finalize wav: {}", e))?;
+        }
+
+        let wav_bytes = cursor.into_inner();
+        let url_str = url.to_string();
+        let token_str = token.cloned();
+
+        tauri::async_runtime::block_on(async move {
+            let client = reqwest::Client::new();
+            let mut req = client
+                .post(format!("{}/transcribe", url_str.trim_end_matches('/')))
+                .header("Content-Type", "audio/wav")
+                .body(wav_bytes);
+
+            if let Some(tok) = token_str {
+                if !tok.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", tok));
+                }
+            }
+
+            let response = req
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let err_text = response.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!(
+                    "Server returned error {}: {}",
+                    status,
+                    err_text
+                ));
+            }
+
+            #[derive(serde::Deserialize)]
+            struct TranscribeResponse {
+                text: String,
+            }
+
+            let json: TranscribeResponse = response
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+
+            Ok(json.text)
+        })
+    }
+}
+
 enum LoadedEngine {
     /// Whisper-family models (whisper, breeze-asr, custom .bin/.gguf) via
     /// transcribe-cpp. Holds the live `Session`, which keeps its `Model` alive
@@ -168,6 +259,7 @@ enum LoadedEngine {
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
     Cohere(CohereModel),
+    Remote(RemoteEngine),
 }
 
 /// RAII guard that clears the `is_loading` flag and notifies waiters on drop.
@@ -497,7 +589,13 @@ impl TranscriptionManager {
             return Err(anyhow::anyhow!(error_msg));
         }
 
-        let model_path = self.model_manager.get_model_path(model_id)?;
+        // The remote engine has no local file; skip on-disk path resolution
+        // (which would fail its existence checks) and use a placeholder.
+        let model_path = if matches!(model_info.engine_type, EngineType::Remote) {
+            std::path::PathBuf::new()
+        } else {
+            self.model_manager.get_model_path(model_id)?
+        };
 
         // Drop the current engine BEFORE building the new one so transcribe-cpp
         // frees the previous native context first — avoids holding two models at
@@ -659,6 +757,7 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::Cohere(engine)
             }
+            EngineType::Remote => LoadedEngine::Remote(RemoteEngine::new()),
         };
 
         // Update the current engine and model ID
@@ -1337,6 +1436,13 @@ impl TranscriptionManager {
                             .map(|r| r.text)
                             .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
                     }
+                    LoadedEngine::Remote(remote_engine) => remote_engine
+                        .transcribe_samples(
+                            &audio,
+                            &settings.remote_server_url,
+                            settings.remote_server_token.as_ref(),
+                        )
+                        .map_err(|e| anyhow::anyhow!("Remote transcription failed: {}", e)),
                 }
             }));
 
@@ -1615,6 +1721,8 @@ fn post_process_transcription_text(
     } else {
         raw
     };
+
+    let corrected = apply_correction_dictionary(&corrected, &settings.correction_dictionary);
 
     filter_transcription_output(
         &corrected,

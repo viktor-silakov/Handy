@@ -35,6 +35,9 @@ pub enum EngineType {
     GigaAM,
     Canary,
     Cohere,
+    /// Forward audio to a remote Handy transcription server over HTTP instead
+    /// of running a model locally. Configured via `remote_server_url`/token.
+    Remote,
 }
 
 /// Where a model comes from and how Handy obtains it — the routing discriminant
@@ -511,6 +514,35 @@ impl ModelManager {
                 is_custom: false,
                 supports_streaming: false,
                 supports_language_detection: true,
+            },
+        );
+
+        // Synthetic entry: transcribe via a remote Handy server instead of a
+        // local model. Has no file to download, so it is always "downloaded"
+        // and its load path is short-circuited (see TranscriptionManager).
+        available_models.insert(
+            "remote-server".to_string(),
+            ModelInfo {
+                id: "remote-server".to_string(),
+                name: "Remote Server".to_string(),
+                description: "Use a remote transcription server.".to_string(),
+                filename: "N/A".to_string(),
+                source: ModelSource::Local,
+                size_mb: 0,
+                is_downloaded: true,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: false,
+                engine_type: EngineType::Remote,
+                accuracy_score: 1.0,
+                speed_score: 1.0,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec![],
+                supports_language_selection: false,
+                is_custom: false,
+                supports_streaming: false,
+                supports_language_detection: false,
             },
         );
 

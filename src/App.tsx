@@ -10,13 +10,18 @@ import {
 import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
+import { CorrectionSuggestionModal } from "./components/CorrectionSuggestionModal";
 import Footer from "./components/footer";
 import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
-import { commands } from "@/bindings";
+import { commands, type CorrectionPair } from "@/bindings";
+import {
+  upsertCorrectionPair,
+  normalizeCorrectionPair,
+} from "@/lib/utils/correctionDictionary";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
 type OnboardingStep = "accessibility" | "model" | "done";
@@ -38,6 +43,10 @@ function App() {
   const [currentSection, setCurrentSection] =
     useState<SidebarSection>("general");
   const { settings, updateSetting } = useSettings();
+  const [correctionSuggestion, setCorrectionSuggestion] =
+    useState<CorrectionPair | null>(null);
+  const [isSavingCorrectionSuggestion, setIsSavingCorrectionSuggestion] =
+    useState(false);
   const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
@@ -170,6 +179,42 @@ function App() {
       unlisten.then((fn) => fn());
     };
   }, [t]);
+
+  // Listen for correction suggestions emitted after the user edits a pasted
+  // transcript (macOS input tracking) and open the confirmation modal.
+  useEffect(() => {
+    const unlisten = listen<CorrectionPair>(
+      "correction-suggestion",
+      (event) => {
+        setCorrectionSuggestion(event.payload);
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const handleSaveCorrectionSuggestion = async (entry: CorrectionPair) => {
+    const normalized = normalizeCorrectionPair(entry);
+
+    if (!normalized) {
+      toast.error(t("settings.correctionDictionary.messages.invalid"));
+      return;
+    }
+
+    setIsSavingCorrectionSuggestion(true);
+
+    try {
+      await updateSetting(
+        "correction_dictionary",
+        upsertCorrectionPair(settings?.correction_dictionary ?? [], normalized),
+      );
+      setCorrectionSuggestion(null);
+      toast.success(t("settings.correctionDictionary.messages.saved"));
+    } finally {
+      setIsSavingCorrectionSuggestion(false);
+    }
+  };
 
   const revealMainWindowForPermissions = async () => {
     try {
@@ -317,6 +362,12 @@ function App() {
     <>
       {toaster}
       {content}
+      <CorrectionSuggestionModal
+        suggestion={correctionSuggestion}
+        isSaving={isSavingCorrectionSuggestion}
+        onClose={() => setCorrectionSuggestion(null)}
+        onSave={handleSaveCorrectionSuggestion}
+      />
     </>
   );
 }

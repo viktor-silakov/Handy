@@ -662,6 +662,16 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
     }
 
+    // Optionally watch the focused field for a single-word edit and suggest it
+    // as a new correction-dictionary entry (macOS-only; gated by settings).
+    if paste_method != PasteMethod::None {
+        crate::correction_tracking::maybe_track_post_paste_edits(
+            app_handle.clone(),
+            text.clone(),
+            settings.auto_submit,
+        );
+    }
+
     Ok(())
 }
 

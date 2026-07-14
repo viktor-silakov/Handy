@@ -7,6 +7,7 @@ mod catalog;
 pub mod cli;
 mod clipboard;
 mod commands;
+mod correction_tracking;
 mod helpers;
 mod input;
 mod llm_client;
@@ -560,6 +561,10 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_auto_submit_key_setting,
             shortcut::change_post_process_enabled_setting,
             shortcut::change_experimental_enabled_setting,
+            shortcut::update_correction_dictionary,
+            shortcut::change_track_input_correction_suggestions_setting,
+            shortcut::change_remote_server_url_setting,
+            shortcut::change_remote_server_token_setting,
             shortcut::change_post_process_base_url_setting,
             shortcut::change_post_process_api_key_setting,
             shortcut::change_post_process_model_setting,

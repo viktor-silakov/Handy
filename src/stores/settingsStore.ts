@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   AppSettings as Settings,
   AudioDevice,
+  CorrectionPair,
   TranscribeAcceleratorSetting,
   OrtAcceleratorSetting,
 } from "@/bindings";
@@ -118,7 +119,15 @@ const settingUpdaters: {
   overlay_position: (value) =>
     commands.changeOverlayPositionSetting(value as string),
   debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),
+  remote_server_url: (value) =>
+    commands.changeRemoteServerUrlSetting(value as string),
+  remote_server_token: (value) =>
+    commands.changeRemoteServerTokenSetting(value as string | null),
   custom_words: (value) => commands.updateCustomWords(value as string[]),
+  correction_dictionary: (value) =>
+    commands.updateCorrectionDictionary(value as CorrectionPair[]),
+  track_input_correction_suggestions: (value) =>
+    commands.changeTrackInputCorrectionSuggestionsSetting(value as boolean),
   word_correction_threshold: (value) =>
     commands.changeWordCorrectionThresholdSetting(value as number),
   paste_delay_ms: (value) =>

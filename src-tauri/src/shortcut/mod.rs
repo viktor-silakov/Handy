@@ -22,9 +22,9 @@ use tauri_plugin_autostart::ManagerExt;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
-    OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, Theme, TypingTool,
-    APPLE_INTELLIGENCE_PROVIDER_ID,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, CorrectionPair, KeyboardImplementation,
+    LLMPrompt, OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, Theme,
+    TypingTool, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
 
@@ -941,6 +941,79 @@ pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Res
 pub fn change_experimental_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.experimental_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+fn normalize_correction_dictionary(entries: Vec<CorrectionPair>) -> Vec<CorrectionPair> {
+    let mut normalized: Vec<CorrectionPair> = Vec::new();
+
+    for entry in entries {
+        let wrong = entry.wrong.trim();
+        let correct = entry.correct.trim();
+
+        if wrong.is_empty() || correct.is_empty() || wrong.eq_ignore_ascii_case(correct) {
+            continue;
+        }
+
+        if let Some(existing) = normalized
+            .iter_mut()
+            .find(|existing| existing.wrong.eq_ignore_ascii_case(wrong))
+        {
+            existing.correct = correct.to_string();
+        } else {
+            normalized.push(CorrectionPair {
+                wrong: wrong.to_string(),
+                correct: correct.to_string(),
+            });
+        }
+    }
+
+    normalized.sort_by(|a, b| a.wrong.to_lowercase().cmp(&b.wrong.to_lowercase()));
+    normalized
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_correction_dictionary(
+    app: AppHandle,
+    entries: Vec<CorrectionPair>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.correction_dictionary = normalize_correction_dictionary(entries);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_track_input_correction_suggestions_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.track_input_correction_suggestions = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_server_url_setting(app: AppHandle, url: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_server_url = url;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_server_token_setting(
+    app: AppHandle,
+    token: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_server_token = token;
     settings::write_settings(&app, settings);
     Ok(())
 }

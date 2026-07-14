@@ -93,6 +93,14 @@ pub struct LLMPrompt {
     pub prompt: String,
 }
 
+/// One learned/curated substitution applied to transcription output:
+/// occurrences of `wrong` (whole-word, case-insensitive) become `correct`.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct CorrectionPair {
+    pub wrong: String,
+    pub correct: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct PostProcessProvider {
     pub id: String,
@@ -393,6 +401,13 @@ pub struct AppSettings {
     pub log_level: LogLevel,
     #[serde(default)]
     pub custom_words: Vec<String>,
+    /// Learned/curated wrong→correct substitutions applied to output text.
+    #[serde(default)]
+    pub correction_dictionary: Vec<CorrectionPair>,
+    /// macOS-only: after paste, watch the focused field for a single-word edit
+    /// and offer to add it to the correction dictionary.
+    #[serde(default)]
+    pub track_input_correction_suggestions: bool,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -464,10 +479,21 @@ pub struct AppSettings {
     /// `overlay_position` (position `none` → style `None`).
     #[serde(default = "default_overlay_style")]
     pub overlay_style: OverlayStyle,
+    /// Base URL of the remote transcription server, used when the synthetic
+    /// "remote-server" model is selected (EngineType::Remote).
+    #[serde(default = "default_remote_server_url")]
+    pub remote_server_url: String,
+    /// Optional Bearer token sent to the remote transcription server.
+    #[serde(default)]
+    pub remote_server_token: Option<String>,
 }
 
 fn default_model() -> String {
     "".to_string()
+}
+
+fn default_remote_server_url() -> String {
+    "http://localhost:3000".to_string()
 }
 
 const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -894,6 +920,10 @@ pub fn get_default_settings() -> AppSettings {
         extra_recording_buffer_ms: 0,
         vad_enabled: default_vad_enabled(),
         overlay_style: default_overlay_style(),
+        remote_server_url: default_remote_server_url(),
+        remote_server_token: None,
+        correction_dictionary: Vec::new(),
+        track_input_correction_suggestions: false,
     }
 }
 
