@@ -124,6 +124,11 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     // Skip eager loading if unload is set to "Immediately" — the model
     // will be loaded on-demand during the next transcription.
     if unload_timeout == ModelUnloadTimeout::Immediately {
+        // load_model (which normally triggers the shared server bootstrap)
+        // is skipped here, so kick off the non-blocking bootstrap directly.
+        if model_id == crate::shared_whisper::SHARED_WHISPER_MODEL_ID {
+            crate::shared_whisper::ensure_server_running();
+        }
         // Notify frontend — load_model won't be called so no events
         // would otherwise be emitted.
         let _ = app.emit(

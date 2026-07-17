@@ -15,6 +15,7 @@ mod managers;
 mod overlay;
 pub mod portable;
 mod settings;
+mod shared_whisper;
 mod shortcut;
 mod signal_handle;
 mod transcription_coordinator;
@@ -182,6 +183,14 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(tray::CurrentTrayIconState::new());
+
+    // When the shared whisper server model is selected, kick off its
+    // bootstrap early (non-blocking) so the server is likely ready before
+    // the first dictation. Failures only log; the app must start regardless.
+    if settings::get_settings(app_handle).selected_model == shared_whisper::SHARED_WHISPER_MODEL_ID
+    {
+        shared_whisper::ensure_server_running();
+    }
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command

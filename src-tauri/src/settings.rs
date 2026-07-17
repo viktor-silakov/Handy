@@ -488,8 +488,11 @@ pub struct AppSettings {
     pub remote_server_token: Option<String>,
 }
 
+/// Default model for new installs: the shared local whisper server. It needs
+/// no download and no configuration, so a fresh install can transcribe as
+/// soon as the server bootstrap finishes.
 fn default_model() -> String {
-    "".to_string()
+    crate::shared_whisper::SHARED_WHISPER_MODEL_ID.to_string()
 }
 
 fn default_remote_server_url() -> String {
@@ -874,7 +877,7 @@ pub fn get_default_settings() -> AppSettings {
         update_checks_enabled: default_update_checks_enabled(),
         show_whats_new_on_update: default_show_whats_new_on_update(),
         whats_new_last_seen_version: default_whats_new_last_seen_version(),
-        selected_model: "".to_string(),
+        selected_model: default_model(),
         onboarding_completed: false,
         always_on_microphone: false,
         selected_microphone: None,
@@ -1059,9 +1062,15 @@ fn apply_settings_migrations(
 
     // One-time onboarding migration: users with an explicit selected model have
     // already made it through model selection. Users who merely have compatible
-    // files on disk should still see onboarding.
+    // files on disk should still see onboarding. Check the STORED value, not the
+    // salvaged settings — the field default is now a real model id
+    // ("shared-whisper"), which must not count as an explicit user choice.
     if settings_value.get("onboarding_completed").is_none() {
-        settings.onboarding_completed = !settings.selected_model.is_empty();
+        let stored_model = settings_value
+            .get("selected_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        settings.onboarding_completed = !stored_model.is_empty();
         updated = true;
     }
 
@@ -1376,6 +1385,42 @@ mod tests {
                 default_settings_json()
             );
         }
+    }
+
+    #[test]
+    fn default_settings_select_shared_whisper() {
+        let settings = get_default_settings();
+        assert_eq!(
+            settings.selected_model,
+            crate::shared_whisper::SHARED_WHISPER_MODEL_ID
+        );
+        // The default selection is not a user choice — onboarding still runs.
+        assert!(!settings.onboarding_completed);
+    }
+
+    #[test]
+    fn onboarding_migration_ignores_defaulted_selected_model() {
+        // A legacy store with neither key: the parsed settings carry the
+        // "shared-whisper" field default, but only an explicitly STORED model
+        // counts as having finished model selection.
+        let raw = serde_json::json!({});
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(
+            settings.selected_model,
+            crate::shared_whisper::SHARED_WHISPER_MODEL_ID
+        );
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert!(!settings.onboarding_completed);
+    }
+
+    #[test]
+    fn onboarding_migration_completes_for_stored_explicit_model() {
+        let raw = serde_json::json!({ "selected_model": "whisper-small" });
+        let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap();
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert!(settings.onboarding_completed);
     }
 
     #[test]

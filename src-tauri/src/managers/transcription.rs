@@ -7,12 +7,13 @@ use crate::settings::{
     get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting,
     TranscribeAcceleratorSetting,
 };
+use crate::shared_whisper::{SHARED_WHISPER_MODEL_ID, SHARED_WHISPER_SERVER_URL};
 use anyhow::Result;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
-use std::io::Cursor;
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock};
@@ -244,6 +245,25 @@ impl RemoteEngine {
 
             Ok(json.text)
         })
+    }
+}
+
+/// Resolve the endpoint the remote engine should hit for `model_id`.
+///
+/// The synthetic "shared-whisper" model always talks to the fixed local
+/// shared server without a token — the user's `remote_server_url`/
+/// `remote_server_token` settings are deliberately ignored for it (zero
+/// configuration by design). Every other `EngineType::Remote` model uses
+/// those settings.
+fn resolve_remote_endpoint<'a>(
+    model_id: &str,
+    remote_server_url: &'a str,
+    remote_server_token: Option<&'a String>,
+) -> (&'a str, Option<&'a String>) {
+    if model_id == SHARED_WHISPER_MODEL_ID {
+        (SHARED_WHISPER_SERVER_URL, None)
+    } else {
+        (remote_server_url, remote_server_token)
     }
 }
 
@@ -757,7 +777,16 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::Cohere(engine)
             }
-            EngineType::Remote => LoadedEngine::Remote(RemoteEngine::new()),
+            EngineType::Remote => {
+                // The shared local server bootstraps itself on demand: kick off
+                // a non-blocking health check + `npx -y shared-whisper-server
+                // ensure` so the server is likely ready by the first
+                // transcription. Failures only log — loading never blocks.
+                if model_id == SHARED_WHISPER_MODEL_ID {
+                    crate::shared_whisper::ensure_server_running();
+                }
+                LoadedEngine::Remote(RemoteEngine::new())
+            }
         };
 
         // Update the current engine and model ID
@@ -1436,13 +1465,28 @@ impl TranscriptionManager {
                             .map(|r| r.text)
                             .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
                     }
-                    LoadedEngine::Remote(remote_engine) => remote_engine
-                        .transcribe_samples(
-                            &audio,
+                    LoadedEngine::Remote(remote_engine) => {
+                        let (url, token) = resolve_remote_endpoint(
+                            &active_model,
                             &settings.remote_server_url,
                             settings.remote_server_token.as_ref(),
-                        )
-                        .map_err(|e| anyhow::anyhow!("Remote transcription failed: {}", e)),
+                        );
+                        remote_engine
+                            .transcribe_samples(&audio, url, token)
+                            .map_err(|e| {
+                                if active_model == SHARED_WHISPER_MODEL_ID {
+                                    anyhow::anyhow!(
+                                    "Shared Whisper Server request to {} failed: {}. The server \
+                                     may still be installing or starting — try again in a moment, \
+                                     or run `npx -y shared-whisper-server ensure` manually.",
+                                    SHARED_WHISPER_SERVER_URL,
+                                    e
+                                )
+                                } else {
+                                    anyhow::anyhow!("Remote transcription failed: {}", e)
+                                }
+                            })
+                    }
                 }
             }));
 
@@ -2037,6 +2081,195 @@ mod tests {
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));
         assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn resolve_remote_endpoint_pins_shared_whisper_and_drops_token() {
+        // The shared server is zero-config: the user's remote server settings
+        // must be ignored, including any configured token.
+        let token = "secret-token".to_string();
+        let (url, tok) = resolve_remote_endpoint(
+            SHARED_WHISPER_MODEL_ID,
+            "http://user-configured.example:9999",
+            Some(&token),
+        );
+
+        assert_eq!(url, SHARED_WHISPER_SERVER_URL);
+        assert_eq!(tok, None);
+    }
+
+    #[test]
+    fn resolve_remote_endpoint_uses_settings_for_remote_server() {
+        let token = "secret-token".to_string();
+        let (url, tok) =
+            resolve_remote_endpoint("remote-server", "http://my-server:3000", Some(&token));
+
+        assert_eq!(url, "http://my-server:3000");
+        assert_eq!(tok, Some(&token));
+    }
+
+    /// Read one HTTP request (headers + Content-Length body) off the stream.
+    fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        use std::io::Read;
+
+        let mut data = Vec::new();
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = match stream.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            data.extend_from_slice(&buf[..n]);
+            if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&data[..pos]).to_ascii_lowercase();
+                let content_length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= pos + 4 + content_length {
+                    break;
+                }
+            }
+        }
+        data
+    }
+
+    /// Serve exactly one `/transcribe` request with the given status and JSON
+    /// body, returning the base URL and a handle resolving to the raw request.
+    fn spawn_one_shot_transcribe_server(
+        status_line: &'static str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<Vec<u8>>) {
+        use std::io::Write;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("mock server addr");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept mock request");
+            let request = read_http_request(&mut stream);
+            let response = format!(
+                "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                status_line,
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write mock response");
+            request
+        });
+        (format!("http://{}", addr), handle)
+    }
+
+    #[test]
+    fn remote_engine_posts_wav_and_parses_text() {
+        let (url, request_handle) =
+            spawn_one_shot_transcribe_server("200 OK", r#"{"text":"hello world"}"#);
+
+        let engine = RemoteEngine::new();
+        let audio = vec![0.05f32; 1600]; // 100 ms of 16 kHz audio
+        let text = engine
+            .transcribe_samples(&audio, &url, None)
+            .expect("mock server transcription succeeds");
+        assert_eq!(text, "hello world");
+
+        let request = request_handle.join().expect("mock server thread");
+        let head_end = request
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("request has headers");
+        let head = String::from_utf8_lossy(&request[..head_end]).to_ascii_lowercase();
+        assert!(head.starts_with("post /transcribe http/1.1"));
+        assert!(head.contains("content-type: audio/wav"));
+        // No token was passed, so no Authorization header may be sent.
+        assert!(!head.contains("authorization:"));
+        // Body is a RIFF/WAVE file.
+        let body = &request[head_end + 4..];
+        assert_eq!(&body[..4], b"RIFF");
+        assert_eq!(&body[8..12], b"WAVE");
+    }
+
+    #[test]
+    fn remote_engine_surfaces_server_errors() {
+        let (url, _request_handle) =
+            spawn_one_shot_transcribe_server("500 Internal Server Error", r#"{"error":"boom"}"#);
+
+        let engine = RemoteEngine::new();
+        let audio = vec![0.0f32; 160];
+        let err = engine
+            .transcribe_samples(&audio, &url, None)
+            .expect_err("5xx must fail");
+        assert!(err.to_string().contains("500"));
+    }
+
+    /// End-to-end smoke against the real shared whisper server. Run manually:
+    /// `cargo test shared_whisper_server_smoke -- --ignored`
+    #[test]
+    #[ignore = "requires the shared whisper server at 127.0.0.1:8737 (npx -y shared-whisper-server ensure)"]
+    fn shared_whisper_server_smoke() {
+        let engine = RemoteEngine::new();
+        // 1 s of a quiet 440 Hz tone — enough for the server to answer with
+        // some (possibly empty) transcription without erroring.
+        let audio: Vec<f32> = (0..16000)
+            .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 16000.0).sin())
+            .collect();
+        let text = engine
+            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None)
+            .expect("real shared whisper server answers /transcribe");
+        println!("shared whisper server returned: {:?}", text);
+    }
+
+    /// Real end-to-end check: decode a WAV with real Russian speech exactly
+    /// like the production path does (hound, i16 -> f32) and run it through
+    /// the real `RemoteEngine` against the live shared whisper server.
+    ///
+    /// Prepare the fixture first (macOS, Russian TTS saying roughly
+    /// "checking dictation through the shared server"):
+    /// ```sh
+    /// say -v Milena -o /tmp/handy_e2e.aiff \
+    ///   "$(printf 'Проверка диктовки через общий сервер')"
+    /// afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/handy_e2e.aiff /tmp/handy_e2e.wav
+    /// ```
+    /// Then run:
+    /// `cargo test shared_whisper_server_russian_speech_e2e -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires the shared whisper server at 127.0.0.1:8737 and the /tmp/handy_e2e.wav fixture"]
+    fn shared_whisper_server_russian_speech_e2e() {
+        // Decode the fixture the same way production decodes WAV files.
+        let audio = crate::audio_toolkit::read_wav_samples("/tmp/handy_e2e.wav")
+            .expect("read /tmp/handy_e2e.wav fixture (see doc comment for how to generate it)");
+        assert!(!audio.is_empty(), "fixture WAV must contain samples");
+        println!(
+            "fixture: {} samples (~{:.2} s at 16 kHz)",
+            audio.len(),
+            audio.len() as f32 / 16000.0
+        );
+
+        let engine = RemoteEngine::new();
+        let text = engine
+            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None)
+            .expect("real shared whisper server answers /transcribe");
+        println!("shared whisper server returned: {:?}", text);
+
+        // The transcription must contain the Russian words for "check"
+        // ("proverka") and "server", case-insensitively. Spelled as unicode
+        // escapes to honour the repo-wide no-Cyrillic source policy.
+        let lowered = text.to_lowercase();
+        let word_check = "\u{43f}\u{440}\u{43e}\u{432}\u{435}\u{440}\u{43a}\u{430}"; // "proverka"
+        let word_server = "\u{441}\u{435}\u{440}\u{432}\u{435}\u{440}"; // "server"
+        assert!(
+            lowered.contains(word_check),
+            "transcription {:?} must contain {:?}",
+            text,
+            word_check
+        );
+        assert!(
+            lowered.contains(word_server),
+            "transcription {:?} must contain {:?}",
+            text,
+            word_server
+        );
     }
 }
 

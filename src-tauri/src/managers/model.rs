@@ -517,34 +517,11 @@ impl ModelManager {
             },
         );
 
-        // Synthetic entry: transcribe via a remote Handy server instead of a
-        // local model. Has no file to download, so it is always "downloaded"
-        // and its load path is short-circuited (see TranscriptionManager).
-        available_models.insert(
-            "remote-server".to_string(),
-            ModelInfo {
-                id: "remote-server".to_string(),
-                name: "Remote Server".to_string(),
-                description: "Use a remote transcription server.".to_string(),
-                filename: "N/A".to_string(),
-                source: ModelSource::Local,
-                size_mb: 0,
-                is_downloaded: true,
-                is_downloading: false,
-                partial_size: 0,
-                is_directory: false,
-                engine_type: EngineType::Remote,
-                accuracy_score: 1.0,
-                speed_score: 1.0,
-                supports_translation: false,
-                is_recommended: false,
-                supported_languages: vec![],
-                supports_language_selection: false,
-                is_custom: false,
-                supports_streaming: false,
-                supports_language_detection: false,
-            },
-        );
+        // Synthetic entries: transcribe via an HTTP server instead of a local
+        // model. They have no file to download, so they are always
+        // "downloaded" and their load path is short-circuited (see
+        // TranscriptionManager).
+        Self::insert_synthetic_remote_models(&mut available_models);
 
         // Add downloadable models
         available_models.insert(
@@ -1155,6 +1132,71 @@ impl ModelManager {
             }
         }
         info!("Seeded {} catalog model(s) into the registry", added);
+    }
+
+    /// Insert the synthetic `EngineType::Remote` models: they represent HTTP
+    /// endpoints rather than files on disk, so they are always "downloaded".
+    ///
+    /// - "remote-server": a user-configured Handy server
+    ///   (`remote_server_url`/`remote_server_token` settings).
+    /// - "shared-whisper": the shared local Whisper server on a FIXED URL
+    ///   (`crate::shared_whisper::SHARED_WHISPER_SERVER_URL`) with no token —
+    ///   zero user configuration by design; the remote server settings are
+    ///   deliberately ignored for it.
+    fn insert_synthetic_remote_models(available_models: &mut HashMap<String, ModelInfo>) {
+        available_models.insert(
+            "remote-server".to_string(),
+            ModelInfo {
+                id: "remote-server".to_string(),
+                name: "Remote Server".to_string(),
+                description: "Use a remote transcription server.".to_string(),
+                filename: "N/A".to_string(),
+                source: ModelSource::Local,
+                size_mb: 0,
+                is_downloaded: true,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: false,
+                engine_type: EngineType::Remote,
+                accuracy_score: 1.0,
+                speed_score: 1.0,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec![],
+                supports_language_selection: false,
+                is_custom: false,
+                supports_streaming: false,
+                supports_language_detection: false,
+            },
+        );
+
+        available_models.insert(
+            crate::shared_whisper::SHARED_WHISPER_MODEL_ID.to_string(),
+            ModelInfo {
+                id: crate::shared_whisper::SHARED_WHISPER_MODEL_ID.to_string(),
+                name: "Shared Whisper Server".to_string(),
+                description: "Shared local Whisper Large v3 Turbo instance, reused across \
+                              apps on this machine. No configuration needed."
+                    .to_string(),
+                filename: "N/A".to_string(),
+                source: ModelSource::Local,
+                size_mb: 0,
+                is_downloaded: true,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: false,
+                engine_type: EngineType::Remote,
+                accuracy_score: 0.85,
+                speed_score: 0.90,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec![],
+                supports_language_selection: false,
+                is_custom: false,
+                supports_streaming: false,
+                supports_language_detection: true,
+            },
+        );
     }
 
     /// Claim the single rescan slot. Returns a guard that releases it on drop,
@@ -2390,6 +2432,27 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::TempDir;
+
+    #[test]
+    fn synthetic_remote_models_include_shared_whisper() {
+        let mut models = HashMap::new();
+        ModelManager::insert_synthetic_remote_models(&mut models);
+
+        let shared = models
+            .get(crate::shared_whisper::SHARED_WHISPER_MODEL_ID)
+            .expect("catalog must contain the shared whisper model");
+        assert_eq!(shared.name, "Shared Whisper Server");
+        assert!(
+            shared.is_downloaded,
+            "no file to download — must always be selectable"
+        );
+        assert!(!shared.is_downloading);
+        assert!(matches!(shared.engine_type, EngineType::Remote));
+        assert_eq!(shared.size_mb, 0);
+
+        // The user-configured remote server entry must survive alongside it.
+        assert!(models.contains_key("remote-server"));
+    }
 
     #[test]
     fn test_effective_language_accepts_chinese_script_intent_for_zh_capability() {
