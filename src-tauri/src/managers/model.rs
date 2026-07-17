@@ -1380,6 +1380,15 @@ impl ModelManager {
         let mut models = self.available_models.lock().unwrap();
 
         for model in models.values_mut() {
+            // Synthetic remote models (remote-server, shared-whisper) have no
+            // local file — the on-disk scan below would permanently flip them
+            // to "not downloaded" and block load_model.
+            if matches!(model.engine_type, EngineType::Remote) {
+                model.is_downloaded = true;
+                model.is_downloading = false;
+                model.partial_size = 0;
+                continue;
+            }
             if let ModelSource::HuggingFace { repo_id, revision } = &model.source {
                 model.is_downloaded = hf_cached_path(repo_id, revision, &model.filename).is_some();
                 model.is_downloading = false;

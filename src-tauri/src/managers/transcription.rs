@@ -205,46 +205,58 @@ impl RemoteEngine {
         let url_str = url.to_string();
         let token_str = token.cloned();
 
-        tauri::async_runtime::block_on(async move {
-            let client = reqwest::Client::new();
-            let mut req = client
-                .post(format!("{}/transcribe", url_str.trim_end_matches('/')))
-                .header("Content-Type", "audio/wav")
-                .body(wav_bytes);
+        // This method is called both from plain threads and from tokio worker
+        // threads (the transcription pipeline). `block_on` panics on the
+        // latter ("Cannot start a runtime from within a runtime"), so run the
+        // HTTP call on a dedicated thread with its own runtime and join it.
+        std::thread::spawn(move || -> Result<String> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to build runtime: {}", e))?;
+            rt.block_on(async move {
+                let client = reqwest::Client::new();
+                let mut req = client
+                    .post(format!("{}/transcribe", url_str.trim_end_matches('/')))
+                    .header("Content-Type", "audio/wav")
+                    .body(wav_bytes);
 
-            if let Some(tok) = token_str {
-                if !tok.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", tok));
+                if let Some(tok) = token_str {
+                    if !tok.is_empty() {
+                        req = req.header("Authorization", format!("Bearer {}", tok));
+                    }
                 }
-            }
 
-            let response = req
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+                let response = req
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
 
-            if !response.status().is_success() {
-                let status = response.status();
-                let err_text = response.text().await.unwrap_or_default();
-                return Err(anyhow::anyhow!(
-                    "Server returned error {}: {}",
-                    status,
-                    err_text
-                ));
-            }
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let err_text = response.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!(
+                        "Server returned error {}: {}",
+                        status,
+                        err_text
+                    ));
+                }
 
-            #[derive(serde::Deserialize)]
-            struct TranscribeResponse {
-                text: String,
-            }
+                #[derive(serde::Deserialize)]
+                struct TranscribeResponse {
+                    text: String,
+                }
 
-            let json: TranscribeResponse = response
-                .json()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+                let json: TranscribeResponse = response
+                    .json()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
 
-            Ok(json.text)
+                Ok(json.text)
+            })
         })
+        .join()
+        .map_err(|_| anyhow::anyhow!("Remote transcription thread panicked"))?
     }
 }
 
