@@ -44,6 +44,28 @@ pub fn is_server_healthy(base_url: &str, timeout: Duration) -> bool {
     })
 }
 
+/// Fire-and-forget model preload on the shared server.
+///
+/// Called the moment recording starts so the server's ~10 s cold model load
+/// overlaps with the user speaking instead of delaying the transcription
+/// after they release the key. No-op for other models; errors are ignored —
+/// the transcription request itself will surface them.
+pub fn warmup_async(model_id: &str) {
+    if model_id != SHARED_WHISPER_MODEL_ID {
+        return;
+    }
+    std::thread::spawn(|| {
+        let url = format!("{}/warmup", SHARED_WHISPER_SERVER_URL);
+        let _ = tauri::async_runtime::block_on(async move {
+            let client = reqwest::Client::builder()
+                .timeout(HEALTH_CHECK_TIMEOUT)
+                .build()
+                .ok()?;
+            client.post(&url).send().await.ok()
+        });
+    });
+}
+
 /// Single-flight guard so overlapping model loads spawn at most one bootstrap.
 static BOOTSTRAP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 

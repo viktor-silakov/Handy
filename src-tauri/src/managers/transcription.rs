@@ -177,6 +177,7 @@ impl RemoteEngine {
         audio: &[f32],
         url: &str,
         token: Option<&String>,
+        language: Option<&str>,
     ) -> Result<String> {
         let spec = WavSpec {
             channels: 1,
@@ -204,6 +205,11 @@ impl RemoteEngine {
         let wav_bytes = cursor.into_inner();
         let url_str = url.to_string();
         let token_str = token.cloned();
+        // "auto" means detect on the server; only a concrete language is
+        // worth forwarding (it saves the server an extra encoder pass).
+        let language_str = language
+            .filter(|l| !l.is_empty() && *l != "auto")
+            .map(|l| l.to_string());
 
         // This method is called both from plain threads and from tokio worker
         // threads (the transcription pipeline). `block_on` panics on the
@@ -220,6 +226,10 @@ impl RemoteEngine {
                     .post(format!("{}/transcribe", url_str.trim_end_matches('/')))
                     .header("Content-Type", "audio/wav")
                     .body(wav_bytes);
+
+                if let Some(lang) = language_str {
+                    req = req.header("X-Language", lang);
+                }
 
                 if let Some(tok) = token_str {
                     if !tok.is_empty() {
@@ -1484,7 +1494,7 @@ impl TranscriptionManager {
                             settings.remote_server_token.as_ref(),
                         );
                         remote_engine
-                            .transcribe_samples(&audio, url, token)
+                            .transcribe_samples(&audio, url, token, Some(&validated_language))
                             .map_err(|e| {
                                 if active_model == SHARED_WHISPER_MODEL_ID {
                                     anyhow::anyhow!(
@@ -2182,7 +2192,7 @@ mod tests {
         let engine = RemoteEngine::new();
         let audio = vec![0.05f32; 1600]; // 100 ms of 16 kHz audio
         let text = engine
-            .transcribe_samples(&audio, &url, None)
+            .transcribe_samples(&audio, &url, None, Some("ru"))
             .expect("mock server transcription succeeds");
         assert_eq!(text, "hello world");
 
@@ -2196,6 +2206,8 @@ mod tests {
         assert!(head.contains("content-type: audio/wav"));
         // No token was passed, so no Authorization header may be sent.
         assert!(!head.contains("authorization:"));
+        // A concrete language must be forwarded for the server to skip autodetect.
+        assert!(head.contains("x-language: ru"));
         // Body is a RIFF/WAVE file.
         let body = &request[head_end + 4..];
         assert_eq!(&body[..4], b"RIFF");
@@ -2210,7 +2222,7 @@ mod tests {
         let engine = RemoteEngine::new();
         let audio = vec![0.0f32; 160];
         let err = engine
-            .transcribe_samples(&audio, &url, None)
+            .transcribe_samples(&audio, &url, None, None)
             .expect_err("5xx must fail");
         assert!(err.to_string().contains("500"));
     }
@@ -2227,7 +2239,7 @@ mod tests {
             .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 16000.0).sin())
             .collect();
         let text = engine
-            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None)
+            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None, None)
             .expect("real shared whisper server answers /transcribe");
         println!("shared whisper server returned: {:?}", text);
     }
@@ -2260,7 +2272,7 @@ mod tests {
 
         let engine = RemoteEngine::new();
         let text = engine
-            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None)
+            .transcribe_samples(&audio, SHARED_WHISPER_SERVER_URL, None, None)
             .expect("real shared whisper server answers /transcribe");
         println!("shared whisper server returned: {:?}", text);
 

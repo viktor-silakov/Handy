@@ -511,6 +511,9 @@ impl ShortcutAction for TranscribeAction {
         if model_supports_streaming {
             tm.start_stream();
         }
+        // Preload the shared server's model while the user is speaking, so a
+        // cold start is (mostly) paid during recording, not after it.
+        crate::shared_whisper::warmup_async(&settings.selected_model);
         let plan_elapsed = plan_started.elapsed();
 
         // Sizing the overlay follows the same advertised capability. A model that
