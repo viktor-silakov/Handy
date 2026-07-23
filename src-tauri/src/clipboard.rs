@@ -20,6 +20,7 @@ fn paste_via_clipboard(
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
     paste_delay_after_ms: u64,
+    restore_clipboard: bool,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
     let clipboard_content = clipboard.read_text().unwrap_or_default();
@@ -64,17 +65,24 @@ fn paste_via_clipboard(
 
     std::thread::sleep(Duration::from_millis(paste_delay_after_ms));
 
-    // Restore original clipboard content
-    // On Wayland, prefer wl-copy for better compatibility
-    #[cfg(target_os = "linux")]
-    if is_wayland() && is_wl_copy_available() {
-        let _ = write_clipboard_via_wl_copy(&clipboard_content);
-    } else {
+    // Restore original clipboard content.
+    //
+    // Skipped for remote-desktop paste: the client mirrors our local clipboard
+    // to the remote host asynchronously, and restoring here would overwrite the
+    // transcription in the shared clipboard before the remote paste consumes
+    // it, so the remote host would receive stale content.
+    if restore_clipboard {
+        // On Wayland, prefer wl-copy for better compatibility
+        #[cfg(target_os = "linux")]
+        if is_wayland() && is_wl_copy_available() {
+            let _ = write_clipboard_via_wl_copy(&clipboard_content);
+        } else {
+            let _ = clipboard.write_text(&clipboard_content);
+        }
+
+        #[cfg(not(target_os = "linux"))]
         let _ = clipboard.write_text(&clipboard_content);
     }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = clipboard.write_text(&clipboard_content);
 
     Ok(())
 }
@@ -591,9 +599,29 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
-    let paste_method = settings.paste_method;
-    let paste_delay_ms = settings.paste_delay_ms;
+    let mut paste_method = settings.paste_method;
+    let mut paste_delay_ms = settings.paste_delay_ms;
     let paste_delay_after_ms = settings.paste_delay_after_ms;
+
+    // Remote-desktop / screen-sharing paste profile.
+    //
+    // When a native remote-desktop client is frontmost, the keystrokes and
+    // clipboard we drive belong to the remote host. Direct synthetic typing is
+    // not forwarded reliably, and a plain paste races the client's shared
+    // clipboard sync, so we force clipboard paste (Cmd+V), lengthen the
+    // pre-paste delay, and keep the transcription in the clipboard (see
+    // `paste_via_clipboard`'s `restore_clipboard`).
+    let remote_desktop_mode = settings.remote_desktop_paste_optimization
+        && paste_method != PasteMethod::None
+        && crate::remote_desktop::frontmost_app_is_remote_desktop();
+    if remote_desktop_mode {
+        if paste_method != PasteMethod::CtrlShiftV && paste_method != PasteMethod::ShiftInsert {
+            paste_method = PasteMethod::CtrlV;
+        }
+        paste_delay_ms = paste_delay_ms.max(settings.remote_desktop_paste_delay_ms);
+        info!("Remote-desktop paste profile active: forcing clipboard paste and skipping clipboard restore");
+    }
+    let restore_clipboard = !remote_desktop_mode;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -637,6 +665,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                 &paste_method,
                 paste_delay_ms,
                 paste_delay_after_ms,
+                restore_clipboard,
             )?
         }
         PasteMethod::ExternalScript => {

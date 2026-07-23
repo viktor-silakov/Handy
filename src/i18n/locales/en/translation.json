@@ -347,6 +347,10 @@
           "ctrlEnter": "Ctrl+Enter"
         }
       },
+      "remoteDesktopPaste": {
+        "label": "Optimize paste for remote desktop",
+        "description": "When a screen-sharing or remote-desktop client (Screen Sharing, Microsoft Remote Desktop, VNC, etc.) is in the foreground, paste via the clipboard with a longer delay so the shared clipboard reaches the remote machine, and keep the transcription on the clipboard so it is not overwritten before the remote pastes it. macOS only."
+      },
       "translateToEnglish": {
         "label": "Translate to English",
         "description": "Automatically translate speech from other languages to English during transcription."

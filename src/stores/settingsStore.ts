@@ -152,6 +152,10 @@ const settingUpdaters: {
     commands.changeMuteWhileRecordingSetting(value as boolean),
   append_trailing_space: (value) =>
     commands.changeAppendTrailingSpaceSetting(value as boolean),
+  remote_desktop_paste_optimization: (value) =>
+    commands.changeRemoteDesktopPasteOptimizationSetting(value as boolean),
+  remote_desktop_paste_delay_ms: (value) =>
+    commands.changeRemoteDesktopPasteDelayMsSetting(value as number),
   log_level: (value) => commands.setLogLevel(value as any),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   theme: (value) => commands.changeThemeSetting(value as string),

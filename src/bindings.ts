@@ -367,6 +367,22 @@ async changeAppendTrailingSpaceSetting(enabled: boolean) : Promise<Result<null, 
     else return { status: "error", error: e  as any };
 }
 },
+async changeRemoteDesktopPasteOptimizationSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remote_desktop_paste_optimization_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRemoteDesktopPasteDelayMsSetting(ms: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remote_desktop_paste_delay_ms_setting", { ms }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
@@ -961,7 +977,21 @@ remote_server_url?: string;
 /**
  * Optional Bearer token sent to the remote transcription server.
  */
-remote_server_token?: string | null }
+remote_server_token?: string | null;
+/**
+ * macOS-only: when a native remote-desktop / screen-sharing client (e.g.
+ * Screen Sharing.app, Microsoft Remote Desktop, VNC) is the frontmost app,
+ * force clipboard paste (Cmd+V), lengthen the pre-paste delay so the shared
+ * clipboard has time to reach the remote host, and skip clipboard
+ * restoration so it is not clobbered before the remote reads it.
+ */
+remote_desktop_paste_optimization?: boolean;
+/**
+ * Pre-paste delay (ms) used only while the remote-desktop optimization is
+ * active. The shared clipboard sync to the remote host is slower than a
+ * local paste, so this is intentionally larger than `paste_delay_ms`.
+ */
+remote_desktop_paste_delay_ms?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }

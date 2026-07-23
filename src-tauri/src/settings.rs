@@ -486,6 +486,18 @@ pub struct AppSettings {
     /// Optional Bearer token sent to the remote transcription server.
     #[serde(default)]
     pub remote_server_token: Option<String>,
+    /// macOS-only: when a native remote-desktop / screen-sharing client (e.g.
+    /// Screen Sharing.app, Microsoft Remote Desktop, VNC) is the frontmost app,
+    /// force clipboard paste (Cmd+V), lengthen the pre-paste delay so the shared
+    /// clipboard has time to reach the remote host, and skip clipboard
+    /// restoration so it is not clobbered before the remote reads it.
+    #[serde(default)]
+    pub remote_desktop_paste_optimization: bool,
+    /// Pre-paste delay (ms) used only while the remote-desktop optimization is
+    /// active. The shared clipboard sync to the remote host is slower than a
+    /// local paste, so this is intentionally larger than `paste_delay_ms`.
+    #[serde(default = "default_remote_desktop_paste_delay_ms")]
+    pub remote_desktop_paste_delay_ms: u64,
 }
 
 /// Default model for new installs: the shared local whisper server. It needs
@@ -578,6 +590,10 @@ fn default_paste_delay_ms() -> u64 {
 
 fn default_paste_delay_after_ms() -> u64 {
     60
+}
+
+fn default_remote_desktop_paste_delay_ms() -> u64 {
+    400
 }
 
 fn default_auto_submit() -> bool {
@@ -925,6 +941,8 @@ pub fn get_default_settings() -> AppSettings {
         overlay_style: default_overlay_style(),
         remote_server_url: default_remote_server_url(),
         remote_server_token: None,
+        remote_desktop_paste_optimization: false,
+        remote_desktop_paste_delay_ms: default_remote_desktop_paste_delay_ms(),
         correction_dictionary: Vec::new(),
         track_input_correction_suggestions: false,
     }
