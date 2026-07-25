@@ -305,7 +305,7 @@ mod remote_keymap {
     // UCKeyTranslate constants.
     const K_UC_KEY_ACTION_DISPLAY: u16 = 3;
     const K_UC_KEY_TRANSLATE_NO_DEAD_KEYS: u32 = 1; // (1 << kUCKeyTranslateNoDeadKeysBit=0)
-    // modifierKeyState is (Carbon modifiers >> 8): shift=0x0200>>8=2, option=0x0800>>8=8.
+                                                    // modifierKeyState is (Carbon modifiers >> 8): shift=0x0200>>8=2, option=0x0800>>8=8.
     const UCK_SHIFT: u32 = 2;
     const UCK_OPTION: u32 = 8;
 
@@ -373,8 +373,7 @@ mod remote_keymap {
                 let add_layout =
                     |layouts: &mut Vec<(HashMap<char, (u16, u8)>, TISInputSourceRef)>,
                      src: TISInputSourceRef| {
-                        let data =
-                            TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
+                        let data = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
                         if data.is_null() {
                             return; // not a uchr keyboard layout (e.g. an IME)
                         }

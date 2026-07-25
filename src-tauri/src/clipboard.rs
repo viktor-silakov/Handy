@@ -12,13 +12,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[cfg(target_os = "linux")]
 use crate::utils::{is_kde_wayland, is_wayland};
 
-/// After the pre-paste delay, remote-desktop mode re-writes the transcription to
-/// the clipboard this many ms before sending the paste keystroke. This defeats a
-/// bidirectional shared-clipboard sync (Screen Sharing) overwriting our text with
-/// the remote host's stale content, and gives the sync a final recent trigger.
-const REMOTE_REASSERT_TAIL_MS: u64 = 150;
-
-/// Per-character pacing for remote-desktop Unicode typing. Fast enough to feel
+/// Per-character pacing for remote-desktop keystroke typing. Fast enough to feel
 /// instant for dictated phrases, slow enough that the Screen Sharing / VNC channel
 /// doesn't drop or reorder characters.
 const REMOTE_TYPING_CHAR_DELAY_MS: u64 = 15;
@@ -31,9 +25,6 @@ fn paste_via_clipboard(
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
     paste_delay_after_ms: u64,
-    restore_clipboard: bool,
-    reassert_before_paste: bool,
-    screen_sharing_push: bool,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
     let saved_text = clipboard.read_text().ok().filter(|t| !t.is_empty());
@@ -65,30 +56,7 @@ fn paste_via_clipboard(
 
     write_result?;
 
-    // Screen Sharing: set the clipboard and push it to the remote host in one
-    // atomic AppleScript. Its automatic "Use Shared Clipboard" sync continuously
-    // mirrors the remote clipboard back onto ours and would revert the write above
-    // before we deliver it (leaving the remote with the previous clipboard).
-    // Setting and sending back-to-back leaves no window for that revert; once the
-    // remote has our text both sides match and nothing reverts. The tunable
-    // pre-paste delay below then covers the transfer before we paste.
-    if screen_sharing_push {
-        crate::remote_desktop::set_clipboard_and_send_to_screen_sharing(text);
-    }
-
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
-
-    // Generic remote clients: re-assert the transcription on the clipboard right
-    // before pasting. A bidirectional shared-clipboard sync can overwrite our
-    // freshly-written text with the remote host's stale content during the
-    // pre-paste wait, which makes the "previous clipboard gets pasted" symptom
-    // appear intermittently. Re-writing here guarantees the local clipboard holds
-    // the transcription at paste time. Remote mode is macOS-only, so a plain
-    // write_text is correct.
-    if reassert_before_paste {
-        let _ = clipboard.write_text(text);
-        std::thread::sleep(Duration::from_millis(REMOTE_REASSERT_TAIL_MS));
-    }
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -110,33 +78,26 @@ fn paste_via_clipboard(
     std::thread::sleep(Duration::from_millis(paste_delay_after_ms));
 
     // Restore original clipboard content.
-    //
-    // Skipped for remote-desktop paste: the client mirrors our local clipboard
-    // to the remote host asynchronously, and restoring here would overwrite the
-    // transcription in the shared clipboard before the remote paste consumes
-    // it, so the remote host would receive stale content.
-    if restore_clipboard {
-        // Text takes priority so this path stays identical to the previous behavior;
-        // an image is only restored when the clipboard held no text at all, which is
-        // the case that used to silently wipe screenshots.
-        if let Some(clipboard_content) = saved_text {
-            // On Wayland, prefer wl-copy for better compatibility
-            #[cfg(target_os = "linux")]
-            if is_wayland() && is_wl_copy_available() {
-                let _ = write_clipboard_via_wl_copy(&clipboard_content);
-            } else {
-                let _ = clipboard.write_text(&clipboard_content);
-            }
-
-            #[cfg(not(target_os = "linux"))]
-            let _ = clipboard.write_text(&clipboard_content);
-        } else if let Some(image) = saved_image {
-            info!("Restoring image to clipboard");
-            let _ = clipboard.write_image(&image);
+    // Text takes priority so this path stays identical to the previous behavior;
+    // an image is only restored when the clipboard held no text at all, which is
+    // the case that used to silently wipe screenshots.
+    if let Some(clipboard_content) = saved_text {
+        // On Wayland, prefer wl-copy for better compatibility
+        #[cfg(target_os = "linux")]
+        if is_wayland() && is_wl_copy_available() {
+            let _ = write_clipboard_via_wl_copy(&clipboard_content);
         } else {
-            // Nothing was there to begin with — don't leave the transcription behind.
-            let _ = clipboard.clear();
+            let _ = clipboard.write_text(&clipboard_content);
         }
+
+        #[cfg(not(target_os = "linux"))]
+        let _ = clipboard.write_text(&clipboard_content);
+    } else if let Some(image) = saved_image {
+        info!("Restoring image to clipboard");
+        let _ = clipboard.write_image(&image);
+    } else {
+        // Nothing was there to begin with — don't leave the transcription behind.
+        let _ = clipboard.clear();
     }
 
     Ok(())
@@ -665,16 +626,11 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     // clipboard sync makes clipboard-based delivery to the remote host unreliable
     // (the remote ends up pasting stale/previous content, and manual Send Clipboard
     // is disabled while "Use Shared Clipboard" is on). Instead we type the text as
-    // per-character Unicode keystrokes, which the client forwards to the remote
-    // host. macOS-only; detection returns None on other platforms.
+    // real keystrokes, which the client forwards to the remote host. macOS-only;
+    // detection returns None on other platforms.
     let remote_desktop_mode = settings.remote_desktop_paste_optimization
         && paste_method != PasteMethod::None
         && crate::remote_desktop::frontmost_remote_client().is_some();
-
-    // Defaults for the local clipboard path (unchanged behavior when not remote).
-    let restore_clipboard = true;
-    let reassert_before_paste = false;
-    let screen_sharing_push = false;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -700,7 +656,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     // Perform the paste operation
     if remote_desktop_mode {
         info!(
-            "Remote-desktop delivery: typing {} chars via per-character Unicode keystrokes",
+            "Remote-desktop delivery: typing {} chars via keystrokes",
             text.chars().count()
         );
         input::type_text_unicode(&text, REMOTE_TYPING_CHAR_DELAY_MS)?;
@@ -725,9 +681,6 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                     &paste_method,
                     paste_delay_ms,
                     paste_delay_after_ms,
-                    restore_clipboard,
-                    reassert_before_paste,
-                    screen_sharing_push,
                 )?
             }
             PasteMethod::ExternalScript => {
