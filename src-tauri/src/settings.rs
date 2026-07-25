@@ -593,7 +593,7 @@ fn default_paste_delay_after_ms() -> u64 {
 }
 
 fn default_remote_desktop_paste_delay_ms() -> u64 {
-    400
+    500
 }
 
 fn default_auto_submit() -> bool {

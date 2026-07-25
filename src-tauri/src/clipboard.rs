@@ -12,6 +12,17 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[cfg(target_os = "linux")]
 use crate::utils::{is_kde_wayland, is_wayland};
 
+/// After the pre-paste delay, remote-desktop mode re-writes the transcription to
+/// the clipboard this many ms before sending the paste keystroke. This defeats a
+/// bidirectional shared-clipboard sync (Screen Sharing) overwriting our text with
+/// the remote host's stale content, and gives the sync a final recent trigger.
+const REMOTE_REASSERT_TAIL_MS: u64 = 150;
+
+/// Per-character pacing for remote-desktop Unicode typing. Fast enough to feel
+/// instant for dictated phrases, slow enough that the Screen Sharing / VNC channel
+/// doesn't drop or reorder characters.
+const REMOTE_TYPING_CHAR_DELAY_MS: u64 = 15;
+
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard(
     enigo: &mut Enigo,
@@ -21,6 +32,8 @@ fn paste_via_clipboard(
     paste_delay_ms: u64,
     paste_delay_after_ms: u64,
     restore_clipboard: bool,
+    reassert_before_paste: bool,
+    screen_sharing_push: bool,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
     let saved_text = clipboard.read_text().ok().filter(|t| !t.is_empty());
@@ -52,7 +65,30 @@ fn paste_via_clipboard(
 
     write_result?;
 
+    // Screen Sharing: set the clipboard and push it to the remote host in one
+    // atomic AppleScript. Its automatic "Use Shared Clipboard" sync continuously
+    // mirrors the remote clipboard back onto ours and would revert the write above
+    // before we deliver it (leaving the remote with the previous clipboard).
+    // Setting and sending back-to-back leaves no window for that revert; once the
+    // remote has our text both sides match and nothing reverts. The tunable
+    // pre-paste delay below then covers the transfer before we paste.
+    if screen_sharing_push {
+        crate::remote_desktop::set_clipboard_and_send_to_screen_sharing(text);
+    }
+
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
+
+    // Generic remote clients: re-assert the transcription on the clipboard right
+    // before pasting. A bidirectional shared-clipboard sync can overwrite our
+    // freshly-written text with the remote host's stale content during the
+    // pre-paste wait, which makes the "previous clipboard gets pasted" symptom
+    // appear intermittently. Re-writing here guarantees the local clipboard holds
+    // the transcription at paste time. Remote mode is macOS-only, so a plain
+    // write_text is correct.
+    if reassert_before_paste {
+        let _ = clipboard.write_text(text);
+        std::thread::sleep(Duration::from_millis(REMOTE_REASSERT_TAIL_MS));
+    }
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -618,29 +654,27 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
-    let mut paste_method = settings.paste_method;
-    let mut paste_delay_ms = settings.paste_delay_ms;
+    let paste_method = settings.paste_method;
+    let paste_delay_ms = settings.paste_delay_ms;
     let paste_delay_after_ms = settings.paste_delay_after_ms;
 
-    // Remote-desktop / screen-sharing paste profile.
+    // Remote-desktop / screen-sharing delivery.
     //
-    // When a native remote-desktop client is frontmost, the keystrokes and
-    // clipboard we drive belong to the remote host. Direct synthetic typing is
-    // not forwarded reliably, and a plain paste races the client's shared
-    // clipboard sync, so we force clipboard paste (Cmd+V), lengthen the
-    // pre-paste delay, and keep the transcription in the clipboard (see
-    // `paste_via_clipboard`'s `restore_clipboard`).
+    // When a native remote-desktop client (Screen Sharing, etc.) is frontmost, the
+    // clipboard we'd drive belongs to the local machine, and the client's shared
+    // clipboard sync makes clipboard-based delivery to the remote host unreliable
+    // (the remote ends up pasting stale/previous content, and manual Send Clipboard
+    // is disabled while "Use Shared Clipboard" is on). Instead we type the text as
+    // per-character Unicode keystrokes, which the client forwards to the remote
+    // host. macOS-only; detection returns None on other platforms.
     let remote_desktop_mode = settings.remote_desktop_paste_optimization
         && paste_method != PasteMethod::None
-        && crate::remote_desktop::frontmost_app_is_remote_desktop();
-    if remote_desktop_mode {
-        if paste_method != PasteMethod::CtrlShiftV && paste_method != PasteMethod::ShiftInsert {
-            paste_method = PasteMethod::CtrlV;
-        }
-        paste_delay_ms = paste_delay_ms.max(settings.remote_desktop_paste_delay_ms);
-        info!("Remote-desktop paste profile active: forcing clipboard paste and skipping clipboard restore");
-    }
-    let restore_clipboard = !remote_desktop_mode;
+        && crate::remote_desktop::frontmost_remote_client().is_some();
+
+    // Defaults for the local clipboard path (unchanged behavior when not remote).
+    let restore_clipboard = true;
+    let reassert_before_paste = false;
+    let screen_sharing_push = false;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -664,36 +698,46 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
     // Perform the paste operation
-    match paste_method {
-        PasteMethod::None => {
-            info!("PasteMethod::None selected - skipping paste action");
-        }
-        PasteMethod::Direct => {
-            paste_direct(
-                &mut enigo,
-                &text,
-                #[cfg(target_os = "linux")]
-                settings.typing_tool,
-            )?;
-        }
-        PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            paste_via_clipboard(
-                &mut enigo,
-                &text,
-                &app_handle,
-                &paste_method,
-                paste_delay_ms,
-                paste_delay_after_ms,
-                restore_clipboard,
-            )?
-        }
-        PasteMethod::ExternalScript => {
-            let script_path = settings
-                .external_script_path
-                .as_ref()
-                .filter(|p| !p.is_empty())
-                .ok_or("External script path is not configured")?;
-            paste_via_external_script(&text, script_path)?;
+    if remote_desktop_mode {
+        info!(
+            "Remote-desktop delivery: typing {} chars via per-character Unicode keystrokes",
+            text.chars().count()
+        );
+        input::type_text_unicode(&text, REMOTE_TYPING_CHAR_DELAY_MS)?;
+    } else {
+        match paste_method {
+            PasteMethod::None => {
+                info!("PasteMethod::None selected - skipping paste action");
+            }
+            PasteMethod::Direct => {
+                paste_direct(
+                    &mut enigo,
+                    &text,
+                    #[cfg(target_os = "linux")]
+                    settings.typing_tool,
+                )?;
+            }
+            PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
+                paste_via_clipboard(
+                    &mut enigo,
+                    &text,
+                    &app_handle,
+                    &paste_method,
+                    paste_delay_ms,
+                    paste_delay_after_ms,
+                    restore_clipboard,
+                    reassert_before_paste,
+                    screen_sharing_push,
+                )?
+            }
+            PasteMethod::ExternalScript => {
+                let script_path = settings
+                    .external_script_path
+                    .as_ref()
+                    .filter(|p| !p.is_empty())
+                    .ok_or("External script path is not configured")?;
+                paste_via_external_script(&text, script_path)?;
+            }
         }
     }
 

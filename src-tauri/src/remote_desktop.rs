@@ -10,7 +10,21 @@
 //! macOS-only: on other platforms the detector is a no-op returning `false`.
 
 #[cfg(target_os = "macos")]
-use log::{debug, warn};
+use log::{info, warn};
+
+/// Which remote-desktop client is frontmost. The paste path treats Apple's
+/// Screen Sharing specially because it exposes an explicit "Send Clipboard"
+/// command that reliably pushes the local clipboard to the remote host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteClient {
+    /// Apple's built-in Screen Sharing.app (`com.apple.ScreenSharing`).
+    ScreenSharing,
+    /// Any other detected remote-desktop client (VNC, RDP, AnyDesk, ...).
+    Other,
+}
+
+#[cfg(target_os = "macos")]
+const SCREEN_SHARING_BUNDLE_ID: &str = "com.apple.ScreenSharing";
 
 /// Known bundle identifiers of native macOS remote-desktop / screen-sharing
 /// clients. Matched case-insensitively and exactly.
@@ -44,65 +58,107 @@ const REMOTE_DESKTOP_ID_SUBSTRINGS: &[&str] = &[
     "splashtop",
 ];
 
-/// Returns `true` when the frontmost application is a known native
-/// remote-desktop / screen-sharing client.
+/// Returns which remote-desktop client is frontmost, or `None` if the frontmost
+/// app is not a recognized client.
 ///
 /// This shells out to `osascript` (like `correction_tracking`) and is only
 /// called from the paste path when the user has enabled the optimization, so
 /// the per-paste cost is paid only by remote-desktop users.
 #[cfg(target_os = "macos")]
-pub fn frontmost_app_is_remote_desktop() -> bool {
+pub fn frontmost_remote_client() -> Option<RemoteClient> {
     match frontmost_bundle_id() {
         Some(id) => {
-            let is_remote = is_remote_desktop_bundle_id(&id);
-            debug!(
-                "Frontmost app bundle id '{}' remote-desktop match: {}",
-                id, is_remote
+            let client = if id.eq_ignore_ascii_case(SCREEN_SHARING_BUNDLE_ID) {
+                Some(RemoteClient::ScreenSharing)
+            } else if is_remote_desktop_bundle_id(&id) {
+                Some(RemoteClient::Other)
+            } else {
+                None
+            };
+            info!(
+                "Remote-desktop detection: frontmost bundle id '{}', client: {:?}",
+                id, client
             );
-            is_remote
+            client
         }
-        None => false,
+        None => {
+            info!("Remote-desktop detection: could not read frontmost bundle id");
+            None
+        }
     }
 }
 
+/// Sets the local clipboard to `text` and immediately pushes it to the remote
+/// host via Screen Sharing's Edit ▸ Send Clipboard command, both in a single
+/// AppleScript. Returns `true` on success.
+///
+/// Doing both in one script is what makes this reliable with the automatic "Use
+/// Shared Clipboard" sync ON: that sync continuously mirrors the remote host's
+/// clipboard back onto the local one and would revert our write before we could
+/// deliver it (the cause of the previous clipboard being pasted). Setting and
+/// sending back-to-back leaves no window for the revert, and once the remote has
+/// our text both sides match so nothing reverts. The text is passed as an argv
+/// item (after `--`), so no escaping is needed and leading dashes are safe.
+///
+/// The menu item name is English-only here; on a localized system the click
+/// fails and the caller falls back to the plain clipboard-delay strategy.
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_id() -> Option<String> {
-    let script = [
-        "tell application \"System Events\"",
-        "try",
-        "return bundle identifier of (first application process whose frontmost is true)",
-        "on error",
-        "return \"\"",
-        "end try",
-        "end tell",
-    ];
+pub fn set_clipboard_and_send_to_screen_sharing(text: &str) -> bool {
+    let script = "on run argv
+set the clipboard to (item 1 of argv)
+tell application \"System Events\"
+tell process \"Screen Sharing\"
+try
+click menu item \"Send Clipboard\" of menu 1 of menu bar item \"Edit\" of menu bar 1
+return \"ok\"
+on error errMsg
+return \"err:\" & errMsg
+end try
+end tell
+end tell
+end run";
 
-    let mut command = std::process::Command::new("osascript");
-    for line in script {
-        command.arg("-e").arg(line);
-    }
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .arg("--")
+        .arg(text)
+        .output();
 
-    let output = match command.output() {
-        Ok(output) => output,
+    match output {
+        Ok(output) => {
+            let out = String::from_utf8_lossy(&output.stdout);
+            let ok = output.status.success() && out.trim() == "ok";
+            if !ok {
+                warn!("Screen Sharing set+send clipboard failed: {}", out.trim());
+            }
+            ok
+        }
         Err(error) => {
             warn!(
-                "Failed to run osascript for remote-desktop detection: {}",
+                "Failed to run osascript for Screen Sharing set+send clipboard: {}",
                 error
             );
-            return None;
+            false
         }
+    }
+}
+
+/// Returns the frontmost application's bundle identifier via NSWorkspace.
+///
+/// This is a native, in-process call (sub-millisecond) rather than spawning
+/// `osascript`, so enabling the remote-desktop optimization doesn't add
+/// process-spawn latency to every paste — including local (non-remote) ones.
+#[cfg(target_os = "macos")]
+fn frontmost_bundle_id() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    let bundle_id = unsafe {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let app = workspace.frontmostApplication()?;
+        app.bundleIdentifier()?
     };
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    Some(bundle_id.to_string())
 }
 
 /// Pure matcher, kept separate so it can be unit-tested without a running WM.
@@ -123,7 +179,13 @@ fn is_remote_desktop_bundle_id(id: &str) -> bool {
 
 /// Non-macOS platforms have no supported detection path yet.
 #[cfg(not(target_os = "macos"))]
-pub fn frontmost_app_is_remote_desktop() -> bool {
+pub fn frontmost_remote_client() -> Option<RemoteClient> {
+    None
+}
+
+/// Screen Sharing's "Send Clipboard" command is macOS-only.
+#[cfg(not(target_os = "macos"))]
+pub fn set_clipboard_and_send_to_screen_sharing(_text: &str) -> bool {
     false
 }
 
