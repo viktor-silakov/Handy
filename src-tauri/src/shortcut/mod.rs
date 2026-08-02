@@ -1321,6 +1321,12 @@ pub fn change_remote_desktop_paste_optimization_setting(
     enabled: bool,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
+    // The only writer of this flag; logged so an unexpected flip is traceable
+    // to a UI action (it once turned up disabled with no known cause).
+    info!(
+        "remote_desktop_paste_optimization: {} -> {}",
+        settings.remote_desktop_paste_optimization, enabled
+    );
     settings.remote_desktop_paste_optimization = enabled;
     settings::write_settings(&app, settings);
     Ok(())
