@@ -40,6 +40,7 @@ export const ModelsSettings: React.FC = () => {
     downloadStats,
     verifyingModels,
     extractingModels,
+    sharedWhisperStatus,
     loading,
     isRescanning,
     downloadModel,
@@ -87,6 +88,14 @@ export const ModelsSettings: React.FC = () => {
   }, [languageFilter, t]);
 
   const getModelStatus = (modelId: string): ModelCardStatus => {
+    if (modelId === "shared-whisper") {
+      if (
+        sharedWhisperStatus === "installing" ||
+        modelId in downloadingModels
+      ) {
+        return "installing";
+      }
+    }
     if (modelId in extractingModels) {
       return "extracting";
     }

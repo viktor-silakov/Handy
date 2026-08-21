@@ -2,12 +2,12 @@ name: Publish handy-remote-server
 
 on:
   push:
-    tags: ['handy-remote-server-v*']
+    tags: ["handy-remote-server-v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write   # required for OIDC trusted publishing
+  id-token: write # required for OIDC trusted publishing
 
 jobs:
   publish:
@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest   # OIDC publishing needs npm >= 11.5
-      - run: npm ci                       # postinstall builds rust-infer via cargo
-      - run: npm run build                # tsc -> dist/
+      - run: npm install -g npm@latest # OIDC publishing needs npm >= 11.5
+      - run: npm ci # postinstall builds rust-infer via cargo
+      - run: npm run build # tsc -> dist/
       - run: npm publish --provenance --access public

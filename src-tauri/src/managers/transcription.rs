@@ -815,7 +815,7 @@ impl TranscriptionManager {
                 // ensure` so the server is likely ready by the first
                 // transcription. Failures only log — loading never blocks.
                 if model_id == SHARED_WHISPER_MODEL_ID {
-                    crate::shared_whisper::ensure_server_running();
+                    crate::shared_whisper::ensure_server_running(Some(self.app_handle.clone()));
                 }
                 LoadedEngine::Remote(RemoteEngine::new())
             }
@@ -1507,13 +1507,19 @@ impl TranscriptionManager {
                             .transcribe_samples(&audio, url, token, Some(&validated_language))
                             .map_err(|e| {
                                 if active_model == SHARED_WHISPER_MODEL_ID {
-                                    anyhow::anyhow!(
-                                    "Shared Whisper Server request to {} failed: {}. The server \
-                                     may still be installing or starting — try again in a moment, \
-                                     or run `npx -y shared-whisper-server ensure` manually.",
-                                    SHARED_WHISPER_SERVER_URL,
-                                    e
-                                )
+                                    if crate::shared_whisper::is_bootstrap_in_flight() {
+                                        anyhow::anyhow!(
+                                            "Shared Whisper Server is currently installing (~1.6 GB model download). Please wait for setup to complete.",
+                                        )
+                                    } else {
+                                        anyhow::anyhow!(
+                                            "Shared Whisper Server request to {} failed: {}. The server \
+                                             may still be installing or starting — try again in a moment, \
+                                             or run `npx -y shared-whisper-server ensure` manually.",
+                                            SHARED_WHISPER_SERVER_URL,
+                                            e
+                                        )
+                                    }
                                 } else {
                                     anyhow::anyhow!("Remote transcription failed: {}", e)
                                 }

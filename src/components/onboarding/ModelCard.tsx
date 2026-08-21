@@ -59,6 +59,7 @@ export type ModelCardStatus =
   | "verifying"
   | "extracting"
   | "switching"
+  | "installing"
   | "active"
   | "available";
 
@@ -346,6 +347,16 @@ const ModelCard: React.FC<ModelCardProps> = ({
           </div>
           <p className="text-xs text-text/50 mt-1">
             {t("modelSelector.extractingGeneric")}
+          </p>
+        </div>
+      )}
+      {status === "installing" && (
+        <div className="w-full mt-3">
+          <div className="w-full h-1.5 bg-logo-primary/20 rounded-full overflow-hidden">
+            <div className="h-full bg-logo-primary rounded-full animate-pulse w-full" />
+          </div>
+          <p className="text-xs text-text/50 mt-1">
+            {t("modelSelector.installingServer")}
           </p>
         </div>
       )}

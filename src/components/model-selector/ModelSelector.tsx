@@ -29,10 +29,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   const {
     models,
     currentModel,
+    downloadingModels,
     downloadProgress,
     downloadStats,
     verifyingModels,
     extractingModels,
+    sharedWhisperStatus,
     selectModel,
   } = useModelStore();
 
@@ -200,6 +202,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
       }
     }
 
+    const isSharedWhisperInstalling =
+      displayModelId === "shared-whisper" &&
+      (sharedWhisperStatus === "installing" ||
+        "shared-whisper" in downloadingModels);
+
+    if (isSharedWhisperInstalling) {
+      return t("modelSelector.installingServer");
+    }
+
     const currentModelInfo = models.find((m) => m.id === displayModelId);
 
     switch (modelStatus) {
@@ -239,6 +250,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     if (Object.keys(verifyingModels).length > 0) return "verifying";
     if (Object.keys(extractingModels).length > 0) return "extracting";
     if (Object.keys(downloadProgress).length > 0) return "downloading";
+    if (
+      displayModelId === "shared-whisper" &&
+      (sharedWhisperStatus === "installing" ||
+        "shared-whisper" in downloadingModels)
+    ) {
+      return "downloading";
+    }
     return modelStatus;
   };
 

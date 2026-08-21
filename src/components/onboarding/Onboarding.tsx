@@ -21,6 +21,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
     downloadingModels,
     verifyingModels,
     extractingModels,
+    sharedWhisperStatus,
     downloadProgress,
     downloadStats,
     cancelDownload,
@@ -131,6 +132,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
   };
 
   const getExistingModelStatus = (modelId: string): ModelCardStatus => {
+    if (
+      modelId === "shared-whisper" &&
+      (sharedWhisperStatus === "installing" || modelId in downloadingModels)
+    ) {
+      return "installing";
+    }
     if (selectedModelId === modelId) return "switching";
     return "available";
   };

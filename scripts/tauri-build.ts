@@ -33,7 +33,9 @@ function getArchSuffix() {
     case "x64":
       return "x64";
     default:
-      throw new Error(`Unsupported architecture for DMG packaging: ${process.arch}`);
+      throw new Error(
+        `Unsupported architecture for DMG packaging: ${process.arch}`,
+      );
   }
 }
 
@@ -64,7 +66,17 @@ function createDmg(root: string) {
 
   const result = spawnSync(
     "hdiutil",
-    ["create", "-volname", productName, "-srcfolder", stageDir, "-ov", "-format", "UDZO", dmgPath],
+    [
+      "create",
+      "-volname",
+      productName,
+      "-srcfolder",
+      stageDir,
+      "-ov",
+      "-format",
+      "UDZO",
+      dmgPath,
+    ],
     { stdio: "inherit" },
   );
 
@@ -92,7 +104,8 @@ const hasExplicitBundles = forwardedArgs.some(
     forwardedArgs[index - 1] === "-b",
 );
 
-const shouldRunLocalMacBuild = forwardedArgs[0] === "build" && !hasExplicitBundles;
+const shouldRunLocalMacBuild =
+  forwardedArgs[0] === "build" && !hasExplicitBundles;
 const tauriArgs = shouldRunLocalMacBuild
   ? [
       "build",

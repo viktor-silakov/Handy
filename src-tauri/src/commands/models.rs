@@ -131,7 +131,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
         // load_model (which normally triggers the shared server bootstrap)
         // is skipped here, so kick off the non-blocking bootstrap directly.
         if model_id == crate::shared_whisper::SHARED_WHISPER_MODEL_ID {
-            crate::shared_whisper::ensure_server_running();
+            crate::shared_whisper::ensure_server_running(Some(app.clone()));
         }
         // Notify frontend — load_model won't be called so no events
         // would otherwise be emitted.
@@ -208,4 +208,11 @@ pub async fn cancel_download(
     model_manager
         .cancel_download(&model_id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_shared_whisper_status(
+) -> Result<crate::shared_whisper::SharedWhisperStatusInfo, String> {
+    Ok(crate::shared_whisper::get_status())
 }

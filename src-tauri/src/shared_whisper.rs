@@ -12,10 +12,22 @@
 //!   because it downloads a ~1.6 GB model.
 
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+
+/// Status of the shared whisper server.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct SharedWhisperStatusInfo {
+    /// One of "ready", "installing", "uninstalled", "error"
+    pub status: String,
+    pub error: Option<String>,
+}
 
 /// Id of the synthetic "Shared Whisper Server" model in the ModelManager
 /// catalog. Selecting it routes transcription to the fixed local server.
@@ -28,6 +40,39 @@ pub const SHARED_WHISPER_SERVER_URL: &str = "http://127.0.0.1:8737";
 /// Quick health-check timeout — short so a bootstrap probe never stalls
 /// anything user-visible for long.
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(1500);
+
+static BOOTSTRAP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static LAST_BOOTSTRAP_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Returns true if the background server installation/bootstrap is currently running.
+pub fn is_bootstrap_in_flight() -> bool {
+    BOOTSTRAP_IN_FLIGHT.load(Ordering::SeqCst)
+}
+
+/// Returns the current health and installation status of the shared whisper server.
+pub fn get_status() -> SharedWhisperStatusInfo {
+    if is_server_healthy(SHARED_WHISPER_SERVER_URL, HEALTH_CHECK_TIMEOUT) {
+        SharedWhisperStatusInfo {
+            status: "ready".to_string(),
+            error: None,
+        }
+    } else if BOOTSTRAP_IN_FLIGHT.load(Ordering::SeqCst) {
+        SharedWhisperStatusInfo {
+            status: "installing".to_string(),
+            error: None,
+        }
+    } else if let Some(err) = LAST_BOOTSTRAP_ERROR.lock().unwrap().clone() {
+        SharedWhisperStatusInfo {
+            status: "error".to_string(),
+            error: Some(err),
+        }
+    } else {
+        SharedWhisperStatusInfo {
+            status: "uninstalled".to_string(),
+            error: None,
+        }
+    }
+}
 
 /// True when `GET {base_url}/health` answers a 2xx status within `timeout`.
 pub fn is_server_healthy(base_url: &str, timeout: Duration) -> bool {
@@ -66,23 +111,46 @@ pub fn warmup_async(model_id: &str) {
     });
 }
 
-/// Single-flight guard so overlapping model loads spawn at most one bootstrap.
-static BOOTSTRAP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-
 /// Ensure the shared server is up without blocking the caller.
 ///
 /// Spawns a background thread that health-checks the server and, when it does
 /// not respond, runs `npx -y shared-whisper-server ensure` (idempotent
-/// install + start; the first run can take minutes). Never fails the caller:
-/// when npx cannot be found this only logs a warning, and transcription then
-/// surfaces a clear "server not reachable" error instead.
-pub fn ensure_server_running() {
+/// install + start; the first run can take minutes). Emits status events
+/// to the frontend when an `AppHandle` is provided.
+pub fn ensure_server_running(app_handle: Option<AppHandle>) {
+    if is_server_healthy(SHARED_WHISPER_SERVER_URL, HEALTH_CHECK_TIMEOUT) {
+        info!(
+            "Shared whisper server is already healthy at {}",
+            SHARED_WHISPER_SERVER_URL
+        );
+        if let Some(ref app) = app_handle {
+            let _ = app.emit(
+                "shared-whisper-status",
+                SharedWhisperStatusInfo {
+                    status: "ready".to_string(),
+                    error: None,
+                },
+            );
+        }
+        return;
+    }
+
     if BOOTSTRAP_IN_FLIGHT.swap(true, Ordering::SeqCst) {
         info!("Shared whisper server bootstrap already in flight; skipping");
         return;
     }
 
-    std::thread::spawn(|| {
+    if let Some(ref app) = app_handle {
+        let _ = app.emit(
+            "shared-whisper-status",
+            SharedWhisperStatusInfo {
+                status: "installing".to_string(),
+                error: None,
+            },
+        );
+    }
+
+    std::thread::spawn(move || {
         // Reset the single-flight flag even if the bootstrap panics.
         struct FlagReset;
         impl Drop for FlagReset {
@@ -92,27 +160,45 @@ pub fn ensure_server_running() {
         }
         let _reset = FlagReset;
 
-        bootstrap_server();
+        bootstrap_server(app_handle);
     });
 }
 
-fn bootstrap_server() {
+fn bootstrap_server(app_handle: Option<AppHandle>) {
     if is_server_healthy(SHARED_WHISPER_SERVER_URL, HEALTH_CHECK_TIMEOUT) {
         info!(
             "Shared whisper server is already healthy at {}",
             SHARED_WHISPER_SERVER_URL
         );
+        if let Some(ref app) = app_handle {
+            let _ = app.emit(
+                "shared-whisper-status",
+                SharedWhisperStatusInfo {
+                    status: "ready".to_string(),
+                    error: None,
+                },
+            );
+        }
         return;
     }
 
     let Some(npx) = find_npx() else {
-        warn!(
-            "Shared whisper server is not running at {} and npx was not found \
+        let err_msg = "Shared whisper server is not running and npx was not found \
              (checked PATH, /usr/local/bin, /opt/homebrew/bin, \
              ~/.nvm/versions/node/*/bin). Install Node.js or start the server \
-             manually with `npx -y shared-whisper-server ensure`.",
-            SHARED_WHISPER_SERVER_URL
-        );
+             manually with `npx -y shared-whisper-server ensure`."
+            .to_string();
+        warn!("{}", err_msg);
+        *LAST_BOOTSTRAP_ERROR.lock().unwrap() = Some(err_msg.clone());
+        if let Some(ref app) = app_handle {
+            let _ = app.emit(
+                "shared-whisper-status",
+                SharedWhisperStatusInfo {
+                    status: "error".to_string(),
+                    error: Some(err_msg),
+                },
+            );
+        }
         return;
     };
 
@@ -140,16 +226,49 @@ fn bootstrap_server() {
     match command.output() {
         Ok(output) if output.status.success() => {
             info!("Shared whisper server bootstrap completed successfully");
+            *LAST_BOOTSTRAP_ERROR.lock().unwrap() = None;
+            if let Some(ref app) = app_handle {
+                let _ = app.emit(
+                    "shared-whisper-status",
+                    SharedWhisperStatusInfo {
+                        status: "ready".to_string(),
+                        error: None,
+                    },
+                );
+                let _ = app.emit("model-download-complete", SHARED_WHISPER_MODEL_ID);
+            }
         }
         Ok(output) => {
-            warn!(
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let err_msg = format!(
                 "Shared whisper server bootstrap exited with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
+                output.status, stderr
             );
+            warn!("{}", err_msg);
+            *LAST_BOOTSTRAP_ERROR.lock().unwrap() = Some(err_msg.clone());
+            if let Some(ref app) = app_handle {
+                let _ = app.emit(
+                    "shared-whisper-status",
+                    SharedWhisperStatusInfo {
+                        status: "error".to_string(),
+                        error: Some(err_msg),
+                    },
+                );
+            }
         }
         Err(e) => {
-            warn!("Failed to run shared whisper server bootstrap: {}", e);
+            let err_msg = format!("Failed to run shared whisper server bootstrap: {}", e);
+            warn!("{}", err_msg);
+            *LAST_BOOTSTRAP_ERROR.lock().unwrap() = Some(err_msg.clone());
+            if let Some(ref app) = app_handle {
+                let _ = app.emit(
+                    "shared-whisper-status",
+                    SharedWhisperStatusInfo {
+                        status: "error".to_string(),
+                        error: Some(err_msg),
+                    },
+                );
+            }
         }
     }
 }

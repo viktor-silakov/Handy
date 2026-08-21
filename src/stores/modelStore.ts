@@ -28,6 +28,8 @@ interface ModelsStore {
   extractingModels: Record<string, true>;
   downloadProgress: Record<string, DownloadProgress>;
   downloadStats: Record<string, DownloadStats>;
+  sharedWhisperStatus: "ready" | "installing" | "uninstalled" | "error";
+  sharedWhisperError: string | null;
   loading: boolean;
   error: string | null;
   initialized: boolean;
@@ -37,6 +39,7 @@ interface ModelsStore {
   initialize: () => Promise<void>;
   loadModels: () => Promise<void>;
   loadCurrentModel: () => Promise<void>;
+  loadSharedWhisperStatus: () => Promise<void>;
   rescanLocalModels: () => Promise<void>;
   selectModel: (modelId: string) => Promise<boolean>;
   downloadModel: (modelId: string) => Promise<boolean>;
@@ -64,6 +67,8 @@ export const useModelStore = create<ModelsStore>()(
     extractingModels: {},
     downloadProgress: {},
     downloadStats: {},
+    sharedWhisperStatus: "uninstalled",
+    sharedWhisperError: null,
     loading: true,
     error: null,
     initialized: false,
@@ -74,6 +79,34 @@ export const useModelStore = create<ModelsStore>()(
     setCurrentModel: (currentModel) => set({ currentModel }),
     setError: (error) => set({ error }),
     setLoading: (loading) => set({ loading }),
+
+    loadSharedWhisperStatus: async () => {
+      try {
+        const result = await commands.getSharedWhisperStatus();
+        if (result.status === "ok") {
+          const { status, error } = result.data;
+          set({
+            sharedWhisperStatus: status as any,
+            sharedWhisperError: error,
+          });
+          if (status === "installing") {
+            set(
+              produce((state) => {
+                state.downloadingModels["shared-whisper"] = true;
+              }),
+            );
+          } else if (status === "ready") {
+            set(
+              produce((state) => {
+                delete state.downloadingModels["shared-whisper"];
+              }),
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load shared whisper status:", err);
+      }
+    },
 
     loadModels: async () => {
       try {
@@ -268,12 +301,37 @@ export const useModelStore = create<ModelsStore>()(
     initialize: async () => {
       if (get().initialized) return;
 
-      const { loadModels, loadCurrentModel } = get();
+      const { loadModels, loadCurrentModel, loadSharedWhisperStatus } = get();
 
       // Load initial data
-      await Promise.all([loadModels(), loadCurrentModel()]);
+      await Promise.all([
+        loadModels(),
+        loadCurrentModel(),
+        loadSharedWhisperStatus(),
+      ]);
 
       // Set up event listeners
+      listen<{ status: string; error: string | null }>(
+        "shared-whisper-status",
+        (event) => {
+          const { status, error } = event.payload;
+          set({
+            sharedWhisperStatus: status as any,
+            sharedWhisperError: error,
+          });
+          set(
+            produce((state) => {
+              if (status === "installing") {
+                state.downloadingModels["shared-whisper"] = true;
+              } else {
+                delete state.downloadingModels["shared-whisper"];
+              }
+            }),
+          );
+          get().loadModels();
+        },
+      );
+
       listen<DownloadProgress>("model-download-progress", (event) => {
         const progress = event.payload;
         set(

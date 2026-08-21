@@ -138,6 +138,7 @@
     "modelReady": "Model Ready",
     "loading": "Loading {{modelName}}...",
     "loadingGeneric": "Loading...",
+    "installingServer": "Installing Shared Whisper Server...",
     "modelError": "Model Error",
     "modelUnloaded": "Model Unloaded",
     "noModelDownloadRequired": "No Model - Download Required",

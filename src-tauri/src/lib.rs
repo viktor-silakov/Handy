@@ -189,7 +189,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // the first dictation. Failures only log; the app must start regardless.
     if settings::get_settings(app_handle).selected_model == shared_whisper::SHARED_WHISPER_MODEL_ID
     {
-        shared_whisper::ensure_server_running();
+        shared_whisper::ensure_server_running(Some(app_handle.clone()));
     }
 
     // Note: Shortcuts are NOT initialized here.
@@ -697,6 +697,7 @@ pub fn run(cli_args: CliArgs) {
             commands::models::get_transcription_model_status,
             commands::models::is_model_loading,
             commands::models::rescan_local_models,
+            commands::models::get_shared_whisper_status,
             commands::audio::update_microphone_mode,
             commands::audio::get_microphone_mode,
             commands::audio::get_windows_microphone_permission_status,

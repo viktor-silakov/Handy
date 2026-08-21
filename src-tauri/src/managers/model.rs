@@ -1241,7 +1241,7 @@ impl ModelManager {
                 source: ModelSource::Local,
                 size_mb: 0,
                 is_downloaded: true,
-                is_downloading: false,
+                is_downloading: crate::shared_whisper::is_bootstrap_in_flight(),
                 partial_size: 0,
                 is_directory: false,
                 engine_type: EngineType::Remote,
