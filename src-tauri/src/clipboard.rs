@@ -818,7 +818,14 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             is_remote_client,
             is_window_match
         );
-        input::type_text_unicode(&text, REMOTE_TYPING_CHAR_DELAY_MS)?;
+        if is_window_match {
+            // Direct Unicode typing for configured windows:
+            // avoids layout switching and sends exact Unicode characters directly.
+            input::type_text_direct_unicode(&text, 8)?;
+        } else {
+            // Remote desktop client (Screen Sharing/VNC): use keycode simulation
+            input::type_text_unicode(&text, REMOTE_TYPING_CHAR_DELAY_MS)?;
+        }
     } else {
         match paste_method {
             PasteMethod::None => {
