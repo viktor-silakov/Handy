@@ -12,6 +12,7 @@ import { TypingToolSetting } from "../TypingTool";
 import { ClipboardHandlingSetting } from "../ClipboardHandling";
 import { AutoSubmit } from "../AutoSubmit";
 import { RemoteDesktopPaste } from "../RemoteDesktopPaste";
+import { KeystrokeTypingWindows } from "../KeystrokeTypingWindows";
 import { PostProcessingToggle } from "../PostProcessingToggle";
 import { AppendTrailingSpace } from "../AppendTrailingSpace";
 import { HistoryLimit } from "../HistoryLimit";
@@ -47,6 +48,7 @@ export const AdvancedSettings: React.FC = () => {
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <AutoSubmit descriptionMode="tooltip" grouped={true} />
         <RemoteDesktopPaste descriptionMode="tooltip" grouped={true} />
+        <KeystrokeTypingWindows descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.advanced.groups.transcription")}>

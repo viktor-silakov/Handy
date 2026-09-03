@@ -548,6 +548,10 @@ pub struct AppSettings {
     /// local paste, so this is intentionally larger than `paste_delay_ms`.
     #[serde(default = "default_remote_desktop_paste_delay_ms")]
     pub remote_desktop_paste_delay_ms: u64,
+    /// Window title or application name patterns (case-insensitive substrings)
+    /// that trigger delivery via per-character keystrokes instead of clipboard paste.
+    #[serde(default)]
+    pub keystroke_typing_window_patterns: Vec<String>,
 }
 
 /// Default model for new installs: the shared local whisper server. It needs
@@ -1021,6 +1025,7 @@ pub fn get_default_settings() -> AppSettings {
         remote_desktop_paste_delay_ms: default_remote_desktop_paste_delay_ms(),
         correction_dictionary: Vec::new(),
         track_input_correction_suggestions: false,
+        keystroke_typing_window_patterns: Vec::new(),
     }
 }
 

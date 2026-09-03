@@ -791,9 +791,12 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     // is disabled while "Use Shared Clipboard" is on). Instead we type the text as
     // real keystrokes, which the client forwards to the remote host. macOS-only;
     // detection returns None on other platforms.
-    let remote_desktop_mode = settings.remote_desktop_paste_optimization
-        && paste_method != PasteMethod::None
-        && crate::remote_desktop::frontmost_remote_client().is_some();
+    let is_remote_client = crate::remote_desktop::frontmost_remote_client().is_some();
+    let is_window_match = crate::remote_desktop::frontmost_window_matches_patterns(
+        &settings.keystroke_typing_window_patterns,
+    );
+    let use_keystrokes_delivery = paste_method != PasteMethod::None
+        && ((settings.remote_desktop_paste_optimization && is_remote_client) || is_window_match);
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -803,15 +806,17 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     };
 
     info!(
-        "Using paste method: {:?}, delay before: {}ms, delay after: {}ms",
-        paste_method, paste_delay_ms, paste_delay_after_ms
+        "Using paste method: {:?}, delay before: {}ms, delay after: {}ms, use_keystrokes: {}",
+        paste_method, paste_delay_ms, paste_delay_after_ms, use_keystrokes_delivery
     );
 
     // Perform the paste operation
-    if remote_desktop_mode {
+    if use_keystrokes_delivery {
         info!(
-            "Remote-desktop delivery: typing {} chars via keystrokes",
-            text.chars().count()
+            "Keystroke delivery: typing {} chars via keystrokes (remote_client={}, window_match={})",
+            text.chars().count(),
+            is_remote_client,
+            is_window_match
         );
         input::type_text_unicode(&text, REMOTE_TYPING_CHAR_DELAY_MS)?;
     } else {

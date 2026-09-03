@@ -1369,6 +1369,18 @@ pub fn change_remote_desktop_paste_delay_ms_setting(app: AppHandle, ms: u64) -> 
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_keystroke_typing_window_patterns_setting(
+    app: AppHandle,
+    patterns: Vec<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.keystroke_typing_window_patterns = patterns;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_lazy_stream_close_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.lazy_stream_close = enabled;

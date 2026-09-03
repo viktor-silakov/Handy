@@ -399,6 +399,14 @@ async changeRemoteDesktopPasteDelayMsSetting(ms: number) : Promise<Result<null, 
     else return { status: "error", error: e  as any };
 }
 },
+async changeKeystrokeTypingWindowPatternsSetting(patterns: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_keystroke_typing_window_patterns_setting", { patterns }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
@@ -1092,7 +1100,12 @@ remote_desktop_paste_optimization?: boolean;
  * active. The shared clipboard sync to the remote host is slower than a
  * local paste, so this is intentionally larger than `paste_delay_ms`.
  */
-remote_desktop_paste_delay_ms?: number }
+remote_desktop_paste_delay_ms?: number; 
+/**
+ * Window title or application name patterns (case-insensitive substrings)
+ * that trigger delivery via per-character keystrokes instead of clipboard paste.
+ */
+keystroke_typing_window_patterns?: string[] }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }

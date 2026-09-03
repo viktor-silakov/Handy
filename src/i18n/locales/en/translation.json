@@ -373,6 +373,14 @@
         "delayLabel": "Remote paste delay",
         "delayDescription": "How long to wait for the shared clipboard to reach the remote machine before pasting. Increase if the previous clipboard is sometimes pasted instead of the transcription."
       },
+      "keystrokeTypingWindows": {
+        "title": "Keystroke Typing Windows",
+        "description": "Type transcription character-by-character into windows matching these titles or application names (useful for remote sessions, VMs, and terminals where clipboard paste fails).",
+        "placeholder": "e.g. Citrix, SSH, Terminal",
+        "add": "Add",
+        "remove": "Remove {{pattern}}",
+        "duplicate": "Pattern \"{{pattern}}\" is already in the list"
+      },
       "translateToEnglish": {
         "label": "Translate to English",
         "description": "Automatically translate speech from other languages to English during transcription."

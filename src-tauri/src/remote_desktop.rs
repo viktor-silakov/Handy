@@ -89,15 +89,174 @@ pub fn frontmost_remote_client() -> Option<RemoteClient> {
 /// `osascript`, so enabling the remote-desktop optimization doesn't add
 /// process-spawn latency to every paste — including local (non-remote) ones.
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_id() -> Option<String> {
+pub fn frontmost_bundle_id() -> Option<String> {
     use objc2_app_kit::NSWorkspace;
 
-    let bundle_id = unsafe {
-        let workspace = NSWorkspace::sharedWorkspace();
-        let app = workspace.frontmostApplication()?;
-        app.bundleIdentifier()?
-    };
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let bundle_id = app.bundleIdentifier()?;
     Some(bundle_id.to_string())
+}
+
+/// Returns the localized name of the frontmost application.
+#[cfg(target_os = "macos")]
+pub fn frontmost_app_name() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    app.localizedName().map(|n| n.to_string())
+}
+
+/// Returns the title of the frontmost application's focused/main window.
+#[cfg(target_os = "macos")]
+pub fn frontmost_window_title() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let pid = app.processIdentifier();
+
+    if let Some(title) = get_window_title_via_ax(pid) {
+        if !title.is_empty() {
+            return Some(title);
+        }
+    }
+
+    get_window_title_via_osascript()
+}
+
+#[cfg(target_os = "macos")]
+fn get_window_title_via_ax(pid: i32) -> Option<String> {
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::string::{CFString, CFStringRef};
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
+        fn AXUIElementCopyAttributeValue(
+            element: CFTypeRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> i32;
+    }
+
+    unsafe {
+        let app_elem = AXUIElementCreateApplication(pid);
+        if app_elem.is_null() {
+            return None;
+        }
+
+        let attr_focused = CFString::from_static_string("AXFocusedWindow");
+        let mut window_elem: CFTypeRef = std::ptr::null_mut();
+        let mut res = AXUIElementCopyAttributeValue(
+            app_elem,
+            attr_focused.as_concrete_TypeRef(),
+            &mut window_elem,
+        );
+
+        if res != 0 || window_elem.is_null() {
+            let attr_main = CFString::from_static_string("AXMainWindow");
+            res = AXUIElementCopyAttributeValue(
+                app_elem,
+                attr_main.as_concrete_TypeRef(),
+                &mut window_elem,
+            );
+        }
+
+        CFRelease(app_elem);
+
+        if res != 0 || window_elem.is_null() {
+            return None;
+        }
+
+        let attr_title = CFString::from_static_string("AXTitle");
+        let mut title_val: CFTypeRef = std::ptr::null_mut();
+        let title_res = AXUIElementCopyAttributeValue(
+            window_elem,
+            attr_title.as_concrete_TypeRef(),
+            &mut title_val,
+        );
+
+        CFRelease(window_elem);
+
+        if title_res == 0 && !title_val.is_null() {
+            let title_cf = CFString::wrap_under_create_rule(title_val as CFStringRef);
+            Some(title_cf.to_string())
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn get_window_title_via_osascript() -> Option<String> {
+    let script = "tell application \"System Events\" to get name of first window of (first application process whose frontmost is true)";
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title)
+    }
+}
+
+/// Checks if the frontmost window title, application name, or bundle id matches
+/// any of the configured patterns (case-insensitive substring match).
+pub fn frontmost_window_matches_patterns(patterns: &[String]) -> bool {
+    if patterns.is_empty() {
+        return false;
+    }
+
+    let title = frontmost_window_title().unwrap_or_default();
+    let app_name = frontmost_app_name().unwrap_or_default();
+    let bundle_id = frontmost_bundle_id().unwrap_or_default();
+
+    let matched = matches_window_patterns_pure(&title, &app_name, &bundle_id, patterns);
+    if matched {
+        info!(
+            "Keystroke typing rule matched: window_title='{}', app_name='{}', bundle_id='{}'",
+            title, app_name, bundle_id
+        );
+    }
+    matched
+}
+
+/// Pure matcher for window title / app name / bundle id patterns.
+fn matches_window_patterns_pure(
+    title: &str,
+    app_name: &str,
+    bundle_id: &str,
+    patterns: &[String],
+) -> bool {
+    let title_lowered = title.to_lowercase();
+    let app_name_lowered = app_name.to_lowercase();
+    let bundle_id_lowered = bundle_id.to_lowercase();
+
+    for pattern in patterns {
+        let trimmed = pattern.trim().to_lowercase();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if (!title_lowered.is_empty() && title_lowered.contains(&trimmed))
+            || (!app_name_lowered.is_empty() && app_name_lowered.contains(&trimmed))
+            || (!bundle_id_lowered.is_empty() && bundle_id_lowered.contains(&trimmed))
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Pure matcher, kept separate so it can be unit-tested without a running WM.
@@ -122,11 +281,27 @@ pub fn frontmost_remote_client() -> Option<RemoteClient> {
     None
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_bundle_id() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_app_name() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_window_title() -> Option<String> {
+    None
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn matches_known_bundle_ids_case_insensitively() {
         assert!(is_remote_desktop_bundle_id("com.apple.ScreenSharing"));
         assert!(is_remote_desktop_bundle_id("COM.APPLE.SCREENSHARING"));
@@ -134,15 +309,74 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn matches_substring_heuristics() {
         assert!(is_remote_desktop_bundle_id("com.example.AnyDesk.helper"));
         assert!(is_remote_desktop_bundle_id("org.vendor.parsec-preview"));
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn rejects_regular_apps() {
         assert!(!is_remote_desktop_bundle_id("com.apple.Safari"));
         assert!(!is_remote_desktop_bundle_id("com.microsoft.VSCode"));
         assert!(!is_remote_desktop_bundle_id(""));
+    }
+
+    #[test]
+    fn test_matches_window_patterns_by_title() {
+        let patterns = vec!["Citrix".to_string(), "SSH: prod".to_string()];
+        assert!(matches_window_patterns_pure(
+            "Citrix Viewer - Session 1",
+            "Citrix",
+            "",
+            &patterns
+        ));
+        assert!(matches_window_patterns_pure(
+            "Terminal — ssh: prod-server",
+            "Terminal",
+            "",
+            &patterns
+        ));
+        assert!(!matches_window_patterns_pure(
+            "Google Chrome - Docs",
+            "Google Chrome",
+            "",
+            &patterns
+        ));
+    }
+
+    #[test]
+    fn test_matches_window_patterns_by_app_name() {
+        let patterns = vec!["VirtualBox".to_string()];
+        assert!(matches_window_patterns_pure(
+            "Windows 11",
+            "VirtualBox VM",
+            "",
+            &patterns
+        ));
+        assert!(!matches_window_patterns_pure(
+            "Safari",
+            "Safari",
+            "com.apple.Safari",
+            &patterns
+        ));
+    }
+
+    #[test]
+    fn test_matches_window_patterns_empty_or_whitespace() {
+        let patterns = vec!["".to_string(), "   ".to_string()];
+        assert!(!matches_window_patterns_pure(
+            "Any Window",
+            "Any App",
+            "any.id",
+            &patterns
+        ));
+        assert!(!matches_window_patterns_pure(
+            "Any Window",
+            "Any App",
+            "any.id",
+            &[]
+        ));
     }
 }
