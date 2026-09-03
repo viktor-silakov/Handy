@@ -1038,11 +1038,11 @@ whats_new_last_seen_version?: string; selected_model?: string; onboarding_comple
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
  */
-selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[];
+selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; 
 /**
  * Learned/curated wrong→correct substitutions applied to output text.
  */
-correction_dictionary?: CorrectionPair[];
+correction_dictionary?: CorrectionPair[]; 
 /**
  * macOS-only: after paste, watch the focused field for a single-word edit
  * and offer to add it to the correction dictionary.
@@ -1063,7 +1063,7 @@ transcribe_gpu_device?: string | null; extra_recording_buffer_ms?: number; vad_e
 /**
  * Experimental detector implementation. Silero remains the stable default.
  */
-vad_backend?: VadBackend;
+vad_backend?: VadBackend; 
 /**
  * Which recording overlay to show: None / Minimal / Live. Streaming mode is
  * not gated on this — that follows model capability. Migrated from the old
@@ -1078,7 +1078,7 @@ remote_server_url?: string;
 /**
  * Optional Bearer token sent to the remote transcription server.
  */
-remote_server_token?: string | null;
+remote_server_token?: string | null; 
 /**
  * macOS-only: when a native remote-desktop / screen-sharing client (e.g.
  * Screen Sharing.app, Microsoft Remote Desktop, VNC) is the frontmost app,
@@ -1086,7 +1086,7 @@ remote_server_token?: string | null;
  * clipboard has time to reach the remote host, and skip clipboard
  * restoration so it is not clobbered before the remote reads it.
  */
-remote_desktop_paste_optimization?: boolean;
+remote_desktop_paste_optimization?: boolean; 
 /**
  * Pre-paste delay (ms) used only while the remote-desktop optimization is
  * active. The shared clipboard sync to the remote host is slower than a
@@ -1209,7 +1209,14 @@ uncovered_bindings: string[];
  * warning banner appears and explains why recording refused.
  */
 recorder_blocked: boolean }
-export type SharedWhisperStatusInfo = { status: string; error: string | null }
+/**
+ * Status of the shared whisper server.
+ */
+export type SharedWhisperStatusInfo = { 
+/**
+ * One of "ready", "installing", "uninstalled", "error"
+ */
+status: string; error: string | null }
 /**
  * How the transcribe shortcut's key events drive a recording.
  */

@@ -214,5 +214,5 @@ pub async fn cancel_download(
 #[specta::specta]
 pub async fn get_shared_whisper_status(
 ) -> Result<crate::shared_whisper::SharedWhisperStatusInfo, String> {
-    Ok(crate::shared_whisper::get_status())
+    Ok(crate::shared_whisper::get_status().await)
 }

@@ -50,8 +50,8 @@ pub fn is_bootstrap_in_flight() -> bool {
 }
 
 /// Returns the current health and installation status of the shared whisper server.
-pub fn get_status() -> SharedWhisperStatusInfo {
-    if is_server_healthy(SHARED_WHISPER_SERVER_URL, HEALTH_CHECK_TIMEOUT) {
+pub async fn get_status() -> SharedWhisperStatusInfo {
+    if is_server_healthy_async(SHARED_WHISPER_SERVER_URL, HEALTH_CHECK_TIMEOUT).await {
         SharedWhisperStatusInfo {
             status: "ready".to_string(),
             error: None,
@@ -74,19 +74,22 @@ pub fn get_status() -> SharedWhisperStatusInfo {
     }
 }
 
+/// Async check whether `GET {base_url}/health` answers a 2xx status within `timeout`.
+pub async fn is_server_healthy_async(base_url: &str, timeout: Duration) -> bool {
+    let url = format!("{}/health", base_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    match client.get(&url).send().await {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 /// True when `GET {base_url}/health` answers a 2xx status within `timeout`.
 pub fn is_server_healthy(base_url: &str, timeout: Duration) -> bool {
-    let url = format!("{}/health", base_url.trim_end_matches('/'));
-    tauri::async_runtime::block_on(async move {
-        let client = match reqwest::Client::builder().timeout(timeout).build() {
-            Ok(client) => client,
-            Err(_) => return false,
-        };
-        match client.get(&url).send().await {
-            Ok(response) => response.status().is_success(),
-            Err(_) => false,
-        }
-    })
+    tauri::async_runtime::block_on(is_server_healthy_async(base_url, timeout))
 }
 
 /// Fire-and-forget model preload on the shared server.
