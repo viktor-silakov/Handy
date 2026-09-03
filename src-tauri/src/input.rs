@@ -497,18 +497,25 @@ mod remote_keymap {
         map
     }
 
+    pub struct LayoutEntry {
+        pub map: HashMap<char, (u16, u8)>,
+        pub source: TISInputSourceRef,
+        pub id: String,
+    }
+
     /// Holds a reverse map per enabled keyboard layout and switches the active
     /// input source on demand. Restores the original input source on drop.
     pub struct RemoteTyper {
-        layouts: Vec<(HashMap<char, (u16, u8)>, TISInputSourceRef)>,
+        layouts: Vec<LayoutEntry>,
         source_list: CFArrayRef,
         original: TISInputSourceRef,
         handypunct: TISInputSourceRef,
         selected: Option<usize>,
+        preferred: Option<usize>,
     }
 
     impl RemoteTyper {
-        pub fn new() -> Option<RemoteTyper> {
+        pub fn new(text: &str) -> Option<RemoteTyper> {
             unsafe {
                 let handypunct = ensure_handypunct();
                 let list = TISCreateInputSourceList(std::ptr::null(), 0);
@@ -522,8 +529,7 @@ mod remote_keymap {
                 let kbd_type = LMGetKbdType() as u32;
                 let mut layouts = Vec::new();
                 let add_layout =
-                    |layouts: &mut Vec<(HashMap<char, (u16, u8)>, TISInputSourceRef)>,
-                     src: TISInputSourceRef| {
+                    |layouts: &mut Vec<LayoutEntry>, src: TISInputSourceRef, id: String| {
                         let data = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
                         if data.is_null() {
                             return; // not a uchr keyboard layout (e.g. an IME)
@@ -534,26 +540,33 @@ mod remote_keymap {
                         }
                         let map = build_map(bytes, kbd_type);
                         if !map.is_empty() {
-                            layouts.push((map, src));
+                            layouts.push(LayoutEntry {
+                                map,
+                                source: src,
+                                id,
+                            });
                         }
                     };
 
-                // HandyPunct first so its base-key punctuation is preferred.
-                if !handypunct.is_null() {
-                    add_layout(&mut layouts, handypunct);
-                }
                 for i in 0..count {
                     let src = CFArrayGetValueAtIndex(list, i);
                     if src.is_null() {
                         continue;
                     }
+                    let id_prop = TISGetInputSourceProperty(src, kTISPropertyInputSourceID);
+                    let id = cf_string_to_rust(id_prop).unwrap_or_default();
                     // Skip HandyPunct if it also shows up in the enabled list.
-                    let id = TISGetInputSourceProperty(src, kTISPropertyInputSourceID);
-                    if cf_string_to_rust(id).as_deref() == Some(HANDYPUNCT_ID) {
+                    if id == HANDYPUNCT_ID {
                         continue;
                     }
-                    add_layout(&mut layouts, src);
+                    add_layout(&mut layouts, src, id);
                 }
+
+                // Add HandyPunct at the end as fallback for symbols not in user's layout.
+                if !handypunct.is_null() {
+                    add_layout(&mut layouts, handypunct, HANDYPUNCT_ID.to_string());
+                }
+
                 if layouts.is_empty() {
                     if !handypunct.is_null() {
                         CFRelease(handypunct);
@@ -562,12 +575,39 @@ mod remote_keymap {
                     return None;
                 }
                 let original = TISCopyCurrentKeyboardInputSource(); // owned (+1)
+
+                let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
+                let mut preferred = None;
+                if has_cyrillic {
+                    // Prefer RussianWin / Russian-PC first
+                    preferred = layouts.iter().position(|l| {
+                        let id_lower = l.id.to_ascii_lowercase();
+                        id_lower.contains("russianwin") || id_lower.contains("russian-pc")
+                    });
+                    // Fall back to any Russian/Cyrillic layout
+                    if preferred.is_none() {
+                        preferred = layouts.iter().position(|l| {
+                            l.id.to_ascii_lowercase().contains("russian")
+                                || l.map.contains_key(&'а')
+                                || l.map.contains_key(&'я')
+                        });
+                    }
+                }
+
+                let mut selected = None;
+                if let Some(pref_idx) = preferred {
+                    TISSelectInputSource(layouts[pref_idx].source);
+                    selected = Some(pref_idx);
+                    std::thread::sleep(std::time::Duration::from_millis(SWITCH_SETTLE_MS));
+                }
+
                 Some(RemoteTyper {
                     layouts,
                     source_list: list,
                     original,
                     handypunct,
-                    selected: None,
+                    selected,
+                    preferred,
                 })
             }
         }
@@ -578,25 +618,34 @@ mod remote_keymap {
         /// punctuation is dropped by the remote. Falls back to a shifted mapping
         /// (fine for letters, which the remote case-folds) and minimizes switches.
         pub fn get(&mut self, c: char) -> Option<(u16, u8)> {
-            let is_base = |i: usize| matches!(self.layouts[i].0.get(&c), Some(&(_, 0)));
-            let has = |i: usize| self.layouts[i].0.contains_key(&c);
-
-            let mut idx: Option<usize> = None;
-            if let Some(s) = self.selected {
-                if is_base(s) {
-                    idx = Some(s);
-                }
-            }
-            if idx.is_none() {
-                idx = (0..self.layouts.len()).find(|&i| is_base(i));
-            }
-            if idx.is_none() {
-                if let Some(s) = self.selected {
-                    if has(s) {
-                        idx = Some(s);
+            // 1. If a preferred layout is set (e.g. Russian-PC for Cyrillic text),
+            // and it contains the character (all Russian letters, digits, and punctuation
+            // like comma, dot, colon, quotes, dashes), ALWAYS use it without switching to US or HandyPunct.
+            if let Some(pref) = self.preferred {
+                if let Some(&res) = self.layouts[pref].map.get(&c) {
+                    if self.selected != Some(pref) {
+                        unsafe {
+                            TISSelectInputSource(self.layouts[pref].source);
+                        }
+                        self.selected = Some(pref);
+                        std::thread::sleep(std::time::Duration::from_millis(SWITCH_SETTLE_MS));
                     }
+                    return Some(res);
                 }
             }
+
+            // 2. If the currently selected layout already has this character, stick with it.
+            if let Some(s) = self.selected {
+                if let Some(&res) = self.layouts[s].map.get(&c) {
+                    return Some(res);
+                }
+            }
+
+            // 3. Otherwise search other layouts: prefer base key, then any key.
+            let is_base = |i: usize| matches!(self.layouts[i].map.get(&c), Some(&(_, 0)));
+            let has = |i: usize| self.layouts[i].map.contains_key(&c);
+
+            let mut idx = (0..self.layouts.len()).find(|&i| is_base(i));
             if idx.is_none() {
                 idx = (0..self.layouts.len()).find(|&i| has(i));
             }
@@ -604,12 +653,12 @@ mod remote_keymap {
 
             if self.selected != Some(idx) {
                 unsafe {
-                    TISSelectInputSource(self.layouts[idx].1);
+                    TISSelectInputSource(self.layouts[idx].source);
                 }
                 self.selected = Some(idx);
                 std::thread::sleep(std::time::Duration::from_millis(SWITCH_SETTLE_MS));
             }
-            self.layouts[idx].0.get(&c).copied()
+            self.layouts[idx].map.get(&c).copied()
         }
     }
 
@@ -659,12 +708,12 @@ pub fn type_text_unicode(text: &str, per_char_delay_ms: u64) -> Result<(), Strin
     const OPTION_KEYCODE: CGKeyCode = 58;
     // Gap between pressing a modifier and the key it modifies, so the remote
     // registers the modifier first (prevents Shift+/ arriving as "/").
-    const MOD_SETTLE_MS: u64 = 8;
+    const MOD_SETTLE_MS: u64 = 12;
 
     let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
         .map_err(|_| "Failed to create CGEventSource".to_string())?;
 
-    let mut typer = remote_keymap::RemoteTyper::new();
+    let mut typer = remote_keymap::RemoteTyper::new(text);
     if typer.is_none() {
         log::warn!("Remote typing: could not enumerate keyboard layouts; using Unicode fallback");
     }
