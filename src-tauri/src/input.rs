@@ -581,20 +581,22 @@ mod remote_keymap {
             let is_base = |i: usize| matches!(self.layouts[i].0.get(&c), Some(&(_, 0)));
             let has = |i: usize| self.layouts[i].0.contains_key(&c);
 
-            // 1. If currently selected layout already has this character (even shifted,
-            // like comma in Russian-PC), stick with it to prevent unnecessary layout
-            // switches and cross-process race conditions.
             let mut idx: Option<usize> = None;
             if let Some(s) = self.selected {
-                if has(s) {
+                if is_base(s) {
                     idx = Some(s);
                 }
             }
-            // 2. If current layout does not have the character, find a layout where it's a base key.
             if idx.is_none() {
                 idx = (0..self.layouts.len()).find(|&i| is_base(i));
             }
-            // 3. Otherwise find any layout that contains the character.
+            if idx.is_none() {
+                if let Some(s) = self.selected {
+                    if has(s) {
+                        idx = Some(s);
+                    }
+                }
+            }
             if idx.is_none() {
                 idx = (0..self.layouts.len()).find(|&i| has(i));
             }
@@ -750,59 +752,8 @@ pub fn type_text_unicode(text: &str, per_char_delay_ms: u64) -> Result<(), Strin
     Ok(())
 }
 
-/// Types `text` into the focused field as direct Unicode CGEvent characters (keycode 0 + string).
-/// This is 100% layout-independent, does not switch system input sources, and correctly
-/// preserves all punctuation, accents, and mixed alphabets (e.g. Cyrillic and Latin).
-#[cfg(target_os = "macos")]
-pub fn type_text_direct_unicode(text: &str, per_char_delay_ms: u64) -> Result<(), String> {
-    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGKeyCode};
-    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-
-    const RETURN_KEYCODE: CGKeyCode = 36;
-
-    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-        .map_err(|_| "Failed to create CGEventSource".to_string())?;
-
-    let post = |keycode: CGKeyCode,
-                keydown: bool,
-                flags: CGEventFlags,
-                unicode: Option<&[u16]>|
-     -> Result<(), String> {
-        let event = CGEvent::new_keyboard_event(source.clone(), keycode, keydown)
-            .map_err(|_| "Failed to create keyboard event".to_string())?;
-        event.set_flags(flags);
-        if let Some(units) = unicode {
-            event.set_string_from_utf16_unchecked(units);
-        }
-        event.post(CGEventTapLocation::HID);
-        Ok(())
-    };
-
-    let mut buf = [0u16; 2];
-    for ch in text.chars() {
-        if ch == '\n' || ch == '\r' {
-            post(RETURN_KEYCODE, true, CGEventFlags::CGEventFlagNull, None)?;
-            post(RETURN_KEYCODE, false, CGEventFlags::CGEventFlagNull, None)?;
-        } else {
-            let units = ch.encode_utf16(&mut buf);
-            post(0, true, CGEventFlags::CGEventFlagNull, Some(units))?;
-            post(0, false, CGEventFlags::CGEventFlagNull, Some(units))?;
-        }
-        if per_char_delay_ms > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(per_char_delay_ms));
-        }
-    }
-
-    Ok(())
-}
-
 /// Non-macOS platforms don't have the remote-desktop typing path.
 #[cfg(not(target_os = "macos"))]
 pub fn type_text_unicode(_text: &str, _per_char_delay_ms: u64) -> Result<(), String> {
     Err("Remote-desktop typing is only implemented on macOS".to_string())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn type_text_direct_unicode(_text: &str, _per_char_delay_ms: u64) -> Result<(), String> {
-    Err("Direct Unicode typing is only implemented on macOS".to_string())
 }
